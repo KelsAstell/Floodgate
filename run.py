@@ -1,0 +1,247 @@
+import asyncio
+import sys
+
+import aiohttp
+import base64
+import hashlib
+import json
+import time
+from contextlib import asynccontextmanager
+from io import BytesIO
+from typing import Optional
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
+
+from openapi.database import init_db
+from openapi.encrypt import webhook_verify
+from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message
+from openapi.token_manage import token_manager
+from openapi.network import post_im_message
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+
+from config import *
+from openapi.tool import check_config
+
+
+
+# OpenAPI请求体
+class WebhookPayload(BaseModel):
+    id: Optional[str] = None
+    op: int
+    d: dict
+    s: Optional[int] = None
+    t: Optional[str] = None
+
+# 全局变量
+ACCESS_TOKEN = None
+WSS_GATEWAY = None
+
+
+
+async def refresh_access_token():
+    global ACCESS_TOKEN
+    try:
+        ACCESS_TOKEN = await token_manager.get_access_token()
+        log.debug(f"Token刷新成功:{ACCESS_TOKEN}")
+    except Exception as e:
+        log.error(f"Token刷新失败:{e}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    await refresh_access_token()
+    scheduler = AsyncIOScheduler()
+    trigger = IntervalTrigger(seconds=30)
+    scheduler.add_job(refresh_access_token, trigger=trigger)
+    scheduler.start()
+    end_time = time.time()
+    log.success(f"Floodgate已启动，耗时: {end_time - start_time:.2f} 秒")
+    yield
+    scheduler.shutdown()
+
+app = FastAPI(lifespan=lifespan)
+connected_clients = set()
+connected_clients_lock = asyncio.Lock()
+
+# 主路由接口
+@app.post(WEBHOOK_ENDPOINT)
+async def openapi_webhook(request: Request):
+    payload = await request.json()
+    #print("Received payload:", payload)
+    op = payload.get("op")
+    d = payload.get("d")
+    if op == 13:
+        try:
+            return await webhook_verify(d)
+        except Exception as e:
+            log.error(f"发送 WebSocket 消息失败: {e}")
+            raise HTTPException(status_code=500, detail="Invalid signature or processing failed")
+    elif op == 0:
+        global CURRENT_MSG_ID
+        ob_data = await parse_open_message_event(CURRENT_MSG_ID,d)
+        if not ob_data:
+            log.info("[WebSocket] 消息已去重")
+            return {"status": "ignored", "op": op}
+        CURRENT_MSG_ID = ob_data.get("message_id")
+        async with connected_clients_lock:
+            for client in connected_clients:
+                try:
+                    data = await client.send_json(ob_data)
+                    log.debug(f"[WebSocket] 发送 WebSocket 消息成功: {data}")
+                except Exception as e:
+                    log.error(f"发送 WebSocket 消息失败: {e}")
+    return {"status": "ignored", "op": op}
+
+from fastapi import WebSocket
+
+@app.websocket(WS_ENDPOINT)
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    async with connected_clients_lock:
+        connected_clients.add(websocket)
+        log.success(f"新 OneBotv11/DeluxeBOT 客户端接入，当前连接数: {len(connected_clients)}")
+
+
+    # 发送 lifecycle.connect 事件
+    try:
+        lifecycle_event = {
+            "time": int(time.time()),
+            "self_id": str(BOT_APPID),  # self_id 必须是字符串
+            "post_type": "meta_event",
+            "meta_event_type": "lifecycle",
+            "sub_type": "connect"
+        }
+        await websocket.send_json(lifecycle_event)
+        log.success("已发送握手包")
+    except Exception as e:
+        log.error(f"发送握手包失败: {e}")
+        return
+    # 启动心跳任务
+    async def heartbeat():
+        while True:
+            try:
+                await websocket.send_json({"type": "ping"})
+                await asyncio.sleep(10)
+            except Exception as exc:
+                log.warning(f"心跳失败，断开连接: {exc}")
+                break
+
+    heartbeat_task = asyncio.create_task(heartbeat())
+
+    try:
+        while True:
+            raw_data = await websocket.receive_text()
+            log.debug(f"[WebSocket] 收到客户端消息: {raw_data}")
+            try:
+                message = json.loads(raw_data)
+                if message.get("action") == "send_msg":
+                    group_id = message["params"].get("group_id")
+                    user_id = message["params"].get("user_id")
+                    msg_list = message["params"].get("message",["","",{"type": "text", "data": {"text": "未知异常"}}])
+                    if msg_list[0].get("type") == "at" and REMOVE_AT:
+                        msg_list = msg_list[2:]
+                    await post_im_message(user_id, group_id, convert_cq_to_openapi_message(msg_list))
+                    # if group_id:
+                    #     await post_group_message(user_id, group_id, convert_cq_to_openapi_message(msg_list))
+                    # else:
+                    #     await post_direct_message(user_id, None, convert_cq_to_openapi_message(msg_list))
+                    await websocket.send_json({
+                            "status": "ok",
+                            "retcode": 0,
+                            "data": {
+                                "message_id": int(time.time())
+                            },
+                            "echo": message["echo"]
+                        })
+                else:
+                    await websocket.send_json({
+                        "status": "failed",
+                        "retcode": 10001,
+                        "msg": "Unsupported action"
+                    })
+            except Exception as e:
+                log.error(f"[WebSocket] 处理消息出错: {e}")
+                await websocket.send_json({
+                    "status": "failed",
+                    "retcode": 10002,
+                    "msg": f"Error parsing or processing request: {e}"
+                })
+    except Exception as e:
+        log.warning(f"[WebSocket] 断开连接：{e}")
+    finally:
+        heartbeat_task.cancel()
+        async with connected_clients_lock:
+            connected_clients.discard(websocket)
+            log.info(f"[WebSocket] 客户端已移除，当前连接数: {len(connected_clients)}")
+
+
+# @app.middleware("http")
+# async def log_requests(request: Request, call_next):
+#     body = await request.body()
+#     print(f"Request URL: {request.method} {request.url}")
+#     print(f"Request Body: {body.decode('utf-8')}")
+#     response = await call_next(request)
+#     return response
+
+
+
+
+@app.post("/upload_base64_image")
+async def upload_base64_image(request: Request):
+    data = await request.json()
+    base64_image = data.get("base64_image", "")
+    channel_id = data.get("channel_id", "")
+    if not channel_id:
+        return {"error": "channel_id is required"}
+    image_data = base64.b64decode(base64_image)
+    access_token = await token_manager.get_access_token(only_get_token=True)
+    if not access_token:
+        return {"error": "Failed to get ACCESS_TOKEN"}
+    url = f"https://api.sgroup.qq.com/channels/{channel_id}/messages"
+    headers = {
+        "Authorization": f"QQBot {access_token}"
+    }
+    form = aiohttp.FormData()
+    form.add_field(
+        name="file_image",
+        value=BytesIO(image_data),
+        filename="image.jpg",
+        content_type="image/jpeg"
+    )
+    form.add_field(
+        name="msg_id",
+        value="1024"
+    )
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(url, headers=headers, data=form, ssl=False, timeout=10.0) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    log.debug(f"图片上传成功: {data}")
+                    md5_hash = hashlib.md5(image_data).hexdigest().upper()
+                    image_url = f"https://gchat.qpic.cn/qmeetpic/0/0-0-{md5_hash}/0"
+                    return {"url": image_url}
+                else:
+                    text = await response.text()
+                    log.error(f"Image uploaded failed: {text}")
+                    return {"error": text}
+        except Exception as e:
+            log.error(f"Image uploaded failed: {e}")
+            return {"error": f"Upload failed: {e}"}
+
+
+CURRENT_MSG_ID = 0
+if __name__ == "__main__":
+    import time
+    start_time = time.time()
+    log.remove()
+    log.add(sys.stdout, level="INFO", format=LOG_FORMAT)
+    import ctypes
+    ctypes.windll.kernel32.SetConsoleTitleW(f"Floodgate {VERSION}" if not CUSTOM_TITLE else CUSTOM_TITLE)
+    asyncio.run(check_config())
+
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
+
+
