@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from openapi.database import init_db
-from openapi.encrypt import webhook_verify
+from openapi.encrypt import verifier
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message
 from openapi.token_manage import token_manager
 from openapi.network import post_im_message, delete_im_message
@@ -69,20 +69,22 @@ connected_clients_lock = asyncio.Lock()
 @app.post(WEBHOOK_ENDPOINT)
 async def openapi_webhook(request: Request):
     payload = await request.json()
-    #print("Received payload:", payload)
     op = payload.get("op")
     d = payload.get("d")
     if op == 13:
         try:
-            return await webhook_verify(d)
+            return await verifier.verify_plain_token(payload)
         except Exception as e:
             log.error(f"发送 WebSocket 消息失败: {e}")
             raise HTTPException(status_code=500, detail="Invalid signature or processing failed")
     elif op == 0:
+        if not await verifier.verify_signature(request):
+            log.warning(f"事件签名校验失败！")
+            raise HTTPException(status_code=401, detail="Invalid Signature")
         global CURRENT_MSG_ID
         ob_data = await parse_open_message_event(CURRENT_MSG_ID,d)
         if not ob_data:
-            log.info("[WebSocket] 消息已去重")
+            log.info("平台推送事件消息已去重")
             return {"status": "ignored", "op": op}
         CURRENT_MSG_ID = ob_data.get("message_id")
         async with connected_clients_lock:
