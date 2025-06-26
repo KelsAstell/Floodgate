@@ -142,7 +142,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     msg_list = message["params"].get("message",["","",{"type": "text", "data": {"text": "未知异常"}}])
                     if msg_list[0].get("type") == "at" and REMOVE_AT:
                         msg_list = msg_list[2:]
-                    await post_im_message(user_id, group_id, convert_cq_to_openapi_message(msg_list))
+                    ret = await post_im_message(user_id, group_id, convert_cq_to_openapi_message(msg_list))
                     # if group_id:
                     #     await post_group_message(user_id, group_id, convert_cq_to_openapi_message(msg_list))
                     # else:
@@ -151,7 +151,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             "status": "ok",
                             "retcode": 0,
                             "data": {
-                                "message_id": int(time.time())
+                                "message_id": ret.get("id")
                             },
                             "echo": message["echo"]
                         })

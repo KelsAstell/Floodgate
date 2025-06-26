@@ -114,8 +114,6 @@ def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, A
                 "type": "text",
                 "text": f"[UNSUPPORTED: {seg_type}]"
             })
-    print(len(rich_segments))
-    print(rich_segments)
     if len(rich_segments) == 1 and rich_segments[0]["type"] == "text":
         return {
             "type": "text",

@@ -122,7 +122,7 @@ async def post_im_message(user_digit_id, group_digit_id, message):
             payload = {"content":text, "msg_type":0,"msg_id":msg_id,"msg_seq":await get_next_msg_seq(msg_id)}
         else:
             payload = {"content":text, "msg_type":7,"media":{"file_info":image_info_list[-1]},"msg_id":msg_id,"msg_seq":await get_next_msg_seq(msg_id)}
-        await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
+        return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
     elif message.get("type") == "ark":
         payload = {"ark": message["ark"], "msg_type": 3, "msg_id": msg_id, "msg_seq":msg_seq}
         return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
@@ -149,9 +149,14 @@ async def post_im_message(user_digit_id, group_digit_id, message):
                 payload = {"file_type":3,"file_data":message["data"][9:]}
                 silk = await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/files", payload)
                 payload = {"msg_type":7,"media":{"file_info":silk},"msg_id":msg_id,"msg_seq":await get_next_msg_seq(msg_id)}
-                await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
+                return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
             else:
                 log.warning("传入的silk不是合法的base64编码")
     else:
         return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", {"content": "暂不支持该消息类型", "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq})
 
+
+async def delete_im_message(user_digit_id, group_digit_id, message_id):
+    endpoint = "/v2/groups" if group_digit_id else "/v2/users"
+    digit_id = group_digit_id if group_digit_id else user_digit_id
+    return await call_open_api("DELETE", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages/{message_id}?hidetip=true", None)
