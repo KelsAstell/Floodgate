@@ -12,6 +12,7 @@ PORT = 48443                                                # Floodgate 服务�
 WEBHOOK_ENDPOINT = "/floodgate"                             # 开放平台回调地址，比如你填写的是 https://example.com/floodgate，这里就应该是 /floodgate
 WS_ENDPOINT = "/ws"                                         # websocket地址，比如onebot端填写的是 ws://127.0.0.1:48443/ws，这里就应该是 /ws
 CUSTOM_TITLE = ""                                           # 如果你这里不填的话，我就要使用默认的标题了哦
+ADD_RETURN = False                                          # 是否在群聊文字消息的第一位加一个\n，这样可能会好看点？DeluxeBOT内部做了相应适配，所以这个选项默认关闭，你可以主动打开它
 
 
 

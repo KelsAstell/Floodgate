@@ -5,7 +5,7 @@ import asyncio
 from cachetools import TTLCache
 from fastapi import HTTPException
 
-from config import QQ_API_BASE,log
+from config import QQ_API_BASE, log, ADD_RETURN
 from openapi.database import get_union_id_by_digit_id
 from openapi.parse_open_event import message_id_to_open_id
 from openapi.token_manage import token_manager
@@ -86,7 +86,10 @@ async def post_im_message(user_digit_id, group_digit_id, message):
     endpoint = "/v2/groups" if group_digit_id else "/v2/users"
     digit_id = group_digit_id if group_digit_id else user_digit_id
     if message.get("type") == "text":
-        payload = {"content": message["text"], "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq}
+        if group_digit_id and ADD_RETURN and not message["text"].startswith("\n"):
+            payload = {"content": "\n" + message["text"], "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq}
+        else:
+            payload = {"content": message["text"], "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq}
         return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
     elif message.get("type") == "rich_text":
         segments = message["segments"]
