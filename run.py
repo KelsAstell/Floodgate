@@ -237,7 +237,7 @@ if __name__ == "__main__":
     import time
     start_time = time.time()
     log.remove()
-    log.add(sys.stdout, level="INFO", format=LOG_FORMAT)
+    log.add(sys.stdout, level=LOG_LEVEL, format=LOG_FORMAT)
     import ctypes
     ctypes.windll.kernel32.SetConsoleTitleW(f"Floodgate {VERSION}" if not CUSTOM_TITLE else CUSTOM_TITLE)
     asyncio.run(check_config())
