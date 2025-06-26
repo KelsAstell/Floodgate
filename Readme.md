@@ -190,6 +190,7 @@ Floodgate 会自动处理信息并发送到 QQ 官方接口。
 ## 📜 License
 
 MIT License - 你可以自由使用和修改此项目。
+Copyright (c) 2025 KelsAstell
 
 ## 联系作者
 * [GitHub](https://github.com/KelsAstell)
