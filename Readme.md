@@ -40,10 +40,14 @@ Floodgate 是一个为 **DeluxeBOT** 特化设计的类 OneBot-QQ 协议转换�
 
 * ✅ 支持 QQ 官方开放平台事件推送 Webhook 接入
 * ✅ 支持 OneBot v11/DeluxeBot WebSocket 客户端通信
+* ✅ 没什么技术
 * ✅ 自动处理 ID 映射，映射后的ID为数字ID
 * ✅ 图床接口，QPS 0.6~1
-* ✅ 支持多类型消息转发（文本、Base64图片、图片直链、本地图片、Ark 卡片、Markdown、Silk 语音(base64格式)等）
-* ✅ 高可配置，兼容 Gensokyo 迁移
+* ✅ 支持多类型消息转发（文本、Base64图片、图片直链、本地图片、Ark 卡片、Markdown、表情(只渲染文本描述)、Silk 语音(base64格式)等）
+* ✅ 高可配置，兼容 Gensokyo 迁移(仅支持数字id映射，不支持idmap_pro，您可以自行修改数据库的创建代码，欢迎pr)
+* ✅ 秒速启动，无需等待
+
+![启动耗时](https://pic1.imgdb.cn/item/685d117a58cb8da5c8738334.png)
 
 ## 💬 消息特性支持对比
 

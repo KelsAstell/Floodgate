@@ -6,6 +6,7 @@ from typing import Dict, Any, List
 from aiocache import Cache
 
 from config import BOT_APPID
+from openapi.constant import face_id_dict
 from openapi.database import get_or_create_digit_id
 
 
@@ -74,11 +75,11 @@ def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, A
                     "url": url
                 })
         elif seg_type == "face":
-            face_id = data.get("id")
+            face_id = data.get("face_id")
             if face_id:
                 rich_segments.append({
-                    "type": "face",
-                    "id": face_id
+                    "type": "text",
+                    "text": f"[表情：{face_id_dict.get(face_id)}]"
                 })
         elif seg_type == "ark": # 乖，咱们单发ark，别整花活
             # Onebot端实现应该是：MessageSegment("ark", {'ark': {...}})
@@ -113,7 +114,8 @@ def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, A
                 "type": "text",
                 "text": f"[UNSUPPORTED: {seg_type}]"
             })
-
+    print(len(rich_segments))
+    print(rich_segments)
     if len(rich_segments) == 1 and rich_segments[0]["type"] == "text":
         return {
             "type": "text",
