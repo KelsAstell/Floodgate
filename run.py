@@ -17,7 +17,7 @@ from openapi.database import init_db
 from openapi.encrypt import webhook_verify
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message
 from openapi.token_manage import token_manager
-from openapi.network import post_im_message
+from openapi.network import post_im_message, delete_im_message
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -153,6 +153,16 @@ async def websocket_endpoint(websocket: WebSocket):
                             "data": {
                                 "message_id": ret.get("id")
                             },
+                            "echo": message["echo"]
+                        })
+                elif message.get("action") == "delete_msg":
+                    message_id = message["params"].get("message_id")
+                    if message_id:
+                        await delete_im_message(message["params"].get("user_id"), message["params"].get("group_id"), message_id)
+                        await websocket.send_json({
+                            "status": "ok",
+                            "retcode": 0,
+                            "data": {},
                             "echo": message["echo"]
                         })
                 else:
