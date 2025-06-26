@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from openapi.database import init_db
 from openapi.encrypt import verifier
-from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message
+from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add
 from openapi.token_manage import token_manager
 from openapi.network import post_im_message, delete_im_message
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -69,6 +69,7 @@ connected_clients_lock = asyncio.Lock()
 @app.post(WEBHOOK_ENDPOINT)
 async def openapi_webhook(request: Request):
     payload = await request.json()
+    #log.debug(f"收到 OpenAPI 请求: {payload}")
     op = payload.get("op")
     d = payload.get("d")
     if op == 13:
@@ -81,12 +82,19 @@ async def openapi_webhook(request: Request):
         if not await verifier.verify_signature(request):
             log.warning(f"事件签名校验失败！")
             raise HTTPException(status_code=401, detail="Invalid Signature")
-        global CURRENT_MSG_ID
-        ob_data = await parse_open_message_event(CURRENT_MSG_ID,d)
-        if not ob_data:
-            log.info("平台推送事件消息已去重")
+        t = payload.get("t")
+        if t == "GROUP_ADD_ROBOT":
+            ob_data = await parse_group_add(d)
+        elif t in ["GROUP_AT_MESSAGE_CREATE", "C2C_MESSAGE_CREATE"]:
+            global CURRENT_MSG_ID
+            ob_data = await parse_open_message_event(CURRENT_MSG_ID,d)
+            if not ob_data:
+                log.info("平台推送事件消息已去重")
+                return {"status": "ignored", "op": op}
+            CURRENT_MSG_ID = ob_data.get("message_id")
+        else:
+            log.success(f"暂不支持的事件类型：{t}")
             return {"status": "ignored", "op": op}
-        CURRENT_MSG_ID = ob_data.get("message_id")
         async with connected_clients_lock:
             for client in connected_clients:
                 try:

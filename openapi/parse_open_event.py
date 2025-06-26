@@ -125,6 +125,17 @@ def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, A
             "segments": rich_segments
         }
 
+async def parse_group_add(payload: dict):
+    return {
+        "time": payload.get("timestamp"),
+        "self_id": str(BOT_APPID),
+        "post_type": "notice",
+        "notice_type": "group_increase",
+        "sub_type": "invite",
+        "group_id": await get_or_create_digit_id(payload.get("group_openid")),
+        "operator_id": 0,
+        "user_id": await get_or_create_digit_id(payload.get("op_member_openid"))
+    }
 
 
 async def parse_open_message_event(current_msg_id,payload: dict):
