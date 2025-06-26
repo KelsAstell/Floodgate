@@ -1,0 +1,167 @@
+import json
+import time
+import asyncio
+from typing import Dict, Any, List
+
+from aiocache import Cache
+
+from config import BOT_APPID
+from openapi.database import get_or_create_digit_id
+
+
+# 使用内存缓存实现双向映射，有效期为5分钟（300秒）
+cache = Cache(Cache.MEMORY, ttl=300)
+global_message_id = 1
+global_message_id_lock = asyncio.Lock()
+
+async def open_id_to_message_id(open_message_id,user_digit_id, group_digit_id) -> int:
+    global global_message_id
+    existing_id = await cache.get(f"open_to_num:{open_message_id}")
+    if existing_id is not None:
+        return existing_id
+
+    async with global_message_id_lock:
+        current_id = global_message_id
+        global_message_id += 1
+        await cache.set(f"open_to_num:{open_message_id}", current_id)
+        await cache.set(f"num_to_open:{user_digit_id}|{group_digit_id}", open_message_id)
+        return current_id
+
+async def message_id_to_open_id(user_digit_id, group_digit_id) -> str:
+    open_id = await cache.get(f"num_to_open:{user_digit_id}|{group_digit_id}")
+    return open_id
+
+def convert_openapi_message_to_cq(content: str, attachments: list) -> list:
+    message = [{"type": "text", "data": {"text": content.strip()}}] if content else []
+    for att in attachments:
+        if att.get("content_type", "").startswith("image/") and att.get("url"):
+            message.append({
+                "type": "image",
+                "data": {
+                    "file": att["url"]
+                }
+            })
+    return message
+
+from typing import List, Dict, Any
+
+def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, Any]:
+    rich_segments = []
+    for seg in segments:
+        seg_type = seg.get("type")
+        data = seg.get("data", {})
+
+        if seg_type == "text":
+            text = data.get("text", "")
+            if text:
+                rich_segments.append({
+                    "type": "text",
+                    "text": text
+                })
+        #
+        # elif seg_type == "at": #疑似 message_reference，但是官方文档显示暂未支持
+        #     user_id = data.get("qq")
+        #     if user_id:
+        #         rich_segments.append({
+        #             "type": "mention",
+        #             "user_id": user_id
+        #         })
+        elif seg_type == "image":
+            url = data.get("file") or data.get("url")
+            if url:
+                rich_segments.append({
+                    "type": "image",
+                    "url": url
+                })
+        elif seg_type == "face":
+            face_id = data.get("id")
+            if face_id:
+                rich_segments.append({
+                    "type": "face",
+                    "id": face_id
+                })
+        elif seg_type == "ark": # 乖，咱们单发ark，别整花活
+            # Onebot端实现应该是：MessageSegment("ark", {'ark': {...}})
+            return {
+                "type": "ark",
+                "ark": data.get("ark")
+            }
+        elif seg_type == "markdown": # 乖，咱们别往markdown里塞别的，md和文字分开两条发，别整花活
+            # Onebot端实现应该是：MessageSegment("markdown", {"data": {'keyboard': {"id": "102097712_1736214096"}}})
+            # 或者 MessageSegment("markdown", {"data": {'content':{...}, 'keyboard': {"id": "102097712_1736214096"}}})
+            markdown_data = data.get("data")
+            if "content" not in markdown_data:
+                return {
+                    "type": "markdown_keyboard",
+                    "keyboard": markdown_data.get("keyboard")
+                }
+            return {
+                "type": "markdown",
+                "content": markdown_data.get("content"),
+                "keyboard": markdown_data.get("keyboard")
+            }
+        elif seg_type == "silk": # 我摊牌了，我没测试silk..因为我的使用场景里不包含音频
+            # Onebot端实现应该是：MessageSegment("silk", {"silk": "base64://..."})
+            # 我没测试，我不知道，有问题你可以fork改改（？
+            return {
+                "type": "file",
+                "file_type": 3,
+                "data": data.get("silk")
+            }
+        else:
+            rich_segments.append({
+                "type": "text",
+                "text": f"[UNSUPPORTED: {seg_type}]"
+            })
+
+    if len(rich_segments) == 1 and rich_segments[0]["type"] == "text":
+        return {
+            "type": "text",
+            "text": rich_segments[0]["text"]
+        }
+    else:
+        return {
+            "type": "rich_text",
+            "segments": rich_segments
+        }
+
+
+
+async def parse_open_message_event(current_msg_id,payload: dict):
+    user_open_id = payload.get("author", {}).get("union_openid")
+    user_digit_id = await get_or_create_digit_id(user_open_id)
+    group_openid = payload.get("group_openid")
+    group_digit_id = await get_or_create_digit_id(group_openid) if group_openid else None
+    open_msg_id = payload.get("id", "0")
+    message_id = int(await open_id_to_message_id(open_msg_id,user_digit_id, group_digit_id))
+    if current_msg_id >= message_id: # 消息去重
+        return None
+    timestamp = int(time.time())
+    content_str = payload.get("content", "")
+    message = convert_openapi_message_to_cq(content_str, payload.get("attachments", []))
+    event = {
+        "time": timestamp,
+        "self_id": str(BOT_APPID),
+        "post_type": "message",
+        "message_type": "group" if group_openid else "private",
+        "sub_type": "normal",
+        "message_id": message_id,
+        "user_id": user_digit_id,
+        "message": message,
+        "raw_message": payload.get("content", ""),
+        "font": 0,
+        "sender": {
+            "user_id": user_digit_id,
+            "nickname": payload.get("author", {}).get("nickname", "") or "unknown",
+            "card": "",
+            "sex": "unknown",
+            "age": 0,
+            "area": "",
+            "level": "",
+            "role": "",
+            "title": ""
+        }
+    }
+    if group_openid:
+        event["group_id"] = group_digit_id
+    return event
