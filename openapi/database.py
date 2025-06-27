@@ -4,7 +4,7 @@ from aiocache import cached, Cache
 from contextlib import asynccontextmanager
 import asyncio
 
-from config import MIGRATE_IDS,log
+from config import MIGRATE_IDS, log, TRANSPARENT_OPENID
 
 DB_NAME = 'storage.db'
 INITIAL_DIGIT_ID = 100000
@@ -42,31 +42,41 @@ pool = ConnectionPool(DB_NAME, POOL_SIZE)
 async def init_db():
     if os.path.exists(DB_NAME):
         return
-
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute('''
+        if not TRANSPARENT_OPENID:
+            await db.execute('''
             CREATE TABLE IF NOT EXISTS idmap (
                 union_id TEXT PRIMARY KEY, 
                 digit_id INTEGER UNIQUE
             )
         ''')
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_digit_id ON idmap(digit_id)')
-
-        await db.execute('''
-            CREATE TABLE IF NOT EXISTS usage (
-                digit_id INTEGER PRIMARY KEY,
-                usage_cnt INTEGER DEFAULT 0
-            ) WITHOUT ROWID
-        ''')
+            await db.execute('CREATE INDEX IF NOT EXISTS idx_digit_id ON idmap(digit_id)')
+            log.success("idmap映射表创建成功")
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS usage (
+                    digit_id INTEGER PRIMARY KEY,
+                    usage_cnt INTEGER DEFAULT 0
+                ) WITHOUT ROWID
+            ''')
+        else:
+            log.warning("OpenID透传已启用，不创建idmap映射表")
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS usage (
+                    union_id TEXT PRIMARY KEY,
+                    usage_cnt INTEGER DEFAULT 0
+                ) WITHOUT ROWID
+            ''')
         await db.commit()
     log.success("数据库创建成功")
     ids_path = os.path.join(os.getcwd(), "ids.json")
     if MIGRATE_IDS:
+        if TRANSPARENT_OPENID:
+            log.warning("OpenID透传已启用，无法导入idmap映射表")
         if not os.path.exists(ids_path):
-            log.warning("未找到ids.json文件，跳过迁移数据环节")
+            log.warning("未找到ids.json文件，跳过导入idmap映射表")
             return
         await batch_insert_idmap_from_json(ids_path)
-        log.success("迁移idmap成功")
+        log.success("导入idmap映射表成功")
 
 async def batch_insert_idmap_from_json(ids_path):
     import base64
@@ -141,26 +151,35 @@ async def get_union_id_by_digit_id(digit_id: int) -> str:
 
 
 # 无需实时更新缓存，更轻量
-async def increment_usage(digit_id: int) -> bool:
+async def increment_usage(id):
     async with aiosqlite.connect(DB_NAME) as db:
-        try:
+        if TRANSPARENT_OPENID:
             await db.execute('''
-                INSERT INTO usage (digit_id, usage_cnt)
+                INSERT INTO usage (union_id, usage_cnt)
                 VALUES (?, 1)
-                ON CONFLICT(digit_id) DO UPDATE SET
+                ON CONFLICT(union_id) DO UPDATE SET
                     usage_cnt = usage_cnt + 1
-            ''', (digit_id,))
-            await db.commit()
-            return True
-        except aiosqlite.Error as e:
-            log.error(f"Database error: {e}")
-            return False
+            ''', (id,))
+        else:
+            await db.execute('''
+                    INSERT INTO usage (digit_id, usage_cnt)
+                    VALUES (?, 1)
+                    ON CONFLICT(digit_id) DO UPDATE SET
+                        usage_cnt = usage_cnt + 1
+                ''', (id,))
+        await db.commit()
+        return True
 
 
 @cached(ttl=60, cache=Cache.MEMORY)
-async def get_usage_count(digit_id: int) -> int:
+async def get_usage_count(id) -> int:
     async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute('SELECT usage_cnt FROM usage WHERE digit_id=?', (digit_id,)) as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        if TRANSPARENT_OPENID:
+            async with db.execute('SELECT usage_cnt FROM usage WHERE union_id=?', (id,)) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else 0
+        else:
+            async with db.execute('SELECT usage_cnt FROM usage WHERE digit_id=?', (id,)) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else 0
 

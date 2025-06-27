@@ -12,14 +12,17 @@ PORT = 48443                                                # Floodgate 服务�
 WEBHOOK_ENDPOINT = "/floodgate"                             # 开放平台回调地址，比如你填写的是 https://example.com/floodgate，这里就应该是 /floodgate
 WS_ENDPOINT = "/ws"                                         # websocket地址，比如onebot端填写的是 ws://127.0.0.1:48443/ws，这里就应该是 /ws
 CUSTOM_TITLE = ""                                           # 如果你这里不填的话，我就要使用默认的标题了哦
-ADD_RETURN = False                                          # 是否在群聊文字消息的第一位加一个\n，这样可能会好看点？DeluxeBOT内部做了相应适配，所以这个选项默认关闭，你可以主动打开它
+ADD_RETURN = False                                          # 是否在群聊文字消息的第一位加一个\n，这样可能会好看点？DeluxeBOT内部做了相应适配，所以这个选项默认关闭
+SANDBOX_CHANNEL_ID = 0                                      # 沙箱频道ID，使用 /upload_image 接口时，若未填写 channel_id ，则使用该参数
 
 
 
-#——————————————————特殊配置（Gensokyo配置迁移）—————————————————#
+#—————————————————特殊配置（给高级用户用的选项）——————————————————#
 # 孩子们，对于为什么要迁移我没话说，哦不对，还是有的，请看下一行
 # ids.json需要和本文件放在同级目录
-MIGRATE_IDS = True                                         # 是否迁移 Gensokyo 的idmap数据，默认为False，注意，只支持最早期的数字id，不支持idmap_pro
+MIGRATE_IDS = False                                         # 是否迁移 Gensokyo 的idmap数据，默认为False，注意，只支持最早期的数字id，不支持idmap_pro
+TRANSPARENT_OPENID = False                                  # OpenID 透传，好东西...但是除非你知道你在干什么，否则不要启用这个选项，
+                                                            # 需要你的 OneBot 实现自行适配string格式的ID，如果你开了这个选项，那你用的一定不是原生OneBot
 
 
 

@@ -7,7 +7,7 @@ import asyncio
 from cachetools import TTLCache
 from fastapi import HTTPException
 
-from config import QQ_API_BASE, log, ADD_RETURN, SANDBOX_CHANNEL_ID
+from config import QQ_API_BASE, log, ADD_RETURN, SANDBOX_CHANNEL_ID, TRANSPARENT_OPENID
 from openapi.database import get_union_id_by_digit_id, increment_usage
 from openapi.parse_open_event import message_id_to_open_id
 from openapi.token_manage import token_manager
@@ -135,18 +135,19 @@ async def post_guild_image(data):
             log.error(f"Image uploaded failed: {e}")
             return {"error": f"Upload failed: {e}"}
 
-async def post_im_message(user_digit_id, group_digit_id, message):
-    msg_id = await message_id_to_open_id(user_digit_id, group_digit_id)
+async def post_im_message(user_id, group_id, message):
+    msg_id = await message_id_to_open_id(user_id, group_id)
     msg_seq = await get_next_msg_seq(msg_id)
-    endpoint = "/v2/groups" if group_digit_id else "/v2/users"
-    digit_id = group_digit_id if group_digit_id else user_digit_id
-    await increment_usage(digit_id)
+    endpoint = "/v2/groups" if group_id else "/v2/users"
+    id = group_id if group_id else user_id
+    union_id = id if TRANSPARENT_OPENID else await get_union_id_by_digit_id(id)
+    await increment_usage(user_id)
     if message.get("type") == "text":
-        if group_digit_id and ADD_RETURN and not message["text"].startswith("\n"):
+        if group_id and ADD_RETURN and not message["text"].startswith("\n"):
             payload = {"content": "\n" + message["text"], "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq}
         else:
             payload = {"content": message["text"], "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq}
-        return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
+        return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
     elif message.get("type") == "rich_text":
         segments = message["segments"]
         image_info_list = []
@@ -157,38 +158,38 @@ async def post_im_message(user_digit_id, group_digit_id, message):
             elif segment["type"] == "image":
                 if segment["url"].startswith("base64://"):
                     payload = {"file_type":1,"file_data":segment["url"][9:]}
-                    ret = await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/files", payload)
+                    ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
                     image_info_list.append(ret["file_info"])
                 elif segment["url"].startswith("http://") or segment["url"].startswith("https://"):
                     payload = {"event_id":msg_id,"file_type":1,"url":segment["url"]}
-                    ret = await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/files", payload)
+                    ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
                     image_info_list.append(ret["file_info"])
                 elif segment["url"].startswith("file:///"):
                     file_path = segment["url"].lstrip("file:///")
                     with open(file_path, "rb") as image_file:
                         encoded_str = base64.b64encode(image_file.read()).decode("utf-8")
                         payload = {"file_type":1,"file_data":encoded_str}
-                        ret = await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/files", payload)
+                        ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
                         image_info_list.append(ret["file_info"])
         if len(image_info_list) > 1:
             for image in image_info_list[:-1]:
                 payload = {"msg_type":7,"media":{"file_info":image},"msg_id":msg_id,"msg_seq":await get_next_msg_seq(msg_id)}
-                await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
+                await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
         if not len(image_info_list):
             payload = {"content":text, "msg_type":0,"msg_id":msg_id,"msg_seq":await get_next_msg_seq(msg_id)}
         else:
             payload = {"content":text, "msg_type":7,"media":{"file_info":image_info_list[-1]},"msg_id":msg_id,"msg_seq":await get_next_msg_seq(msg_id)}
-        return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
+        return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
     elif message.get("type") == "ark":
         payload = {"ark": message["ark"], "msg_type": 3, "msg_id": msg_id, "msg_seq":msg_seq}
-        return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
+        return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
     elif message.get("type") == "markdown_keyboard":
         payload = {
             "content":"markdown",
             "msg_type":2,
             "msg_id":msg_id,
             "keyboard":message.get("keyboard"),"msg_seq":msg_seq}
-        return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
+        return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
     elif message.get("type") == "markdown":
         payload = {
             "content":"markdown",
@@ -198,31 +199,32 @@ async def post_im_message(user_digit_id, group_digit_id, message):
             "markdown":message.get("markdown"),
             "msg_seq":msg_seq
         }
-        return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
+        return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
     elif message.get("type") == "file":
         if message.get("file_type") == 3: # silk语音
             if message["data"].startswith("base64://"):
                 payload = {"file_type":3,"file_data":message["data"][9:]}
-                silk = await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/files", payload)
+                silk = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
             elif message["data"].startswith("http://") or message["data"].startswith("https://"):
                 payload = {"event_id":msg_id,"file_type":3,"url":message["data"]}
-                silk = await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/files", payload)
+                silk = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
             elif message["data"].startswith("file:///"):
                 file_path = message["data"].lstrip("file:///")
                 with open(file_path, "rb") as silk_file:
                     encoded_str = base64.b64encode(silk_file.read()).decode("utf-8")
                 payload = {"file_type":3,"file_data":encoded_str}
-                silk = await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/files", payload)
+                silk = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
             else:
                 log.warning("传入的silk参数不是正确的base64编码、url或文件路径")
-                return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", {"content": "传入的silk参数不是正确的base64编码、url或文件路径", "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq})
+                return await call_open_api("POST", f"{endpoint}/{union_id}/messages", {"content": "传入的silk参数不是正确的base64编码、url或文件路径", "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq})
             payload = {"msg_type":7,"media":{"file_info":silk.get("file_info")},"msg_id":msg_id,"msg_seq":await get_next_msg_seq(msg_id)}
-            return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
+            return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
     else:
-        return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", {"content": "暂不支持该消息类型", "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq})
+        return await call_open_api("POST", f"{endpoint}/{union_id}/messages", {"content": "暂不支持该消息类型", "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq})
 
 
-async def delete_im_message(user_digit_id, group_digit_id, message_id):
-    endpoint = "/v2/groups" if group_digit_id else "/v2/users"
-    digit_id = group_digit_id if group_digit_id else user_digit_id
-    return await call_open_api("DELETE", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages/{message_id}?hidetip=true", None)
+async def delete_im_message(user_id, group_id, message_id):
+    endpoint = "/v2/groups" if group_id else "/v2/users"
+    id = group_id if group_id else user_id
+    union_id = id if TRANSPARENT_OPENID else await get_union_id_by_digit_id(id)
+    return await call_open_api("DELETE", f"{endpoint}/{union_id}/messages/{message_id}?hidetip=true", None)

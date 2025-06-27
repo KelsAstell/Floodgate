@@ -5,7 +5,7 @@ from typing import Dict, Any, List
 
 from aiocache import Cache
 
-from config import BOT_APPID
+from config import BOT_APPID, TRANSPARENT_OPENID
 from openapi.constant import face_id_dict
 from openapi.database import get_or_create_digit_id
 
@@ -126,25 +126,40 @@ def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, A
         }
 
 async def parse_group_add(payload: dict):
+    if not TRANSPARENT_OPENID:
+        return {
+            "time": payload.get("timestamp"),
+            "self_id": str(BOT_APPID),
+            "post_type": "notice",
+            "notice_type": "group_increase",
+            "sub_type": "invite",
+            "group_id": await get_or_create_digit_id(payload.get("group_openid")),
+            "operator_id": 0,
+            "user_id": await get_or_create_digit_id(payload.get("op_member_openid"))
+        }
     return {
         "time": payload.get("timestamp"),
         "self_id": str(BOT_APPID),
         "post_type": "notice",
         "notice_type": "group_increase",
         "sub_type": "invite",
-        "group_id": await get_or_create_digit_id(payload.get("group_openid")),
+        "group_id": payload.get("group_openid"),
         "operator_id": 0,
-        "user_id": await get_or_create_digit_id(payload.get("op_member_openid"))
+        "user_id": payload.get("op_member_openid")
     }
 
 
 async def parse_open_message_event(current_msg_id,payload: dict):
     user_open_id = payload.get("author", {}).get("union_openid")
-    user_digit_id = await get_or_create_digit_id(user_open_id)
     group_openid = payload.get("group_openid")
-    group_digit_id = await get_or_create_digit_id(group_openid) if group_openid else None
+    if not TRANSPARENT_OPENID:
+        user_id = await get_or_create_digit_id(user_open_id)
+        group_id = await get_or_create_digit_id(group_openid) if group_openid else None
+    else:
+        user_id = user_open_id
+        group_id = group_openid
     open_msg_id = payload.get("id", "0")
-    message_id = int(await open_id_to_message_id(open_msg_id,user_digit_id, group_digit_id))
+    message_id = int(await open_id_to_message_id(open_msg_id,user_id, group_id))
     if current_msg_id >= message_id: # 消息去重
         return None
     timestamp = int(time.time())
@@ -157,12 +172,12 @@ async def parse_open_message_event(current_msg_id,payload: dict):
         "message_type": "group" if group_openid else "private",
         "sub_type": "normal",
         "message_id": message_id,
-        "user_id": user_digit_id,
+        "user_id": user_id,
         "message": message,
         "raw_message": payload.get("content", ""),
         "font": 0,
         "sender": {
-            "user_id": user_digit_id,
+            "user_id": user_id,
             "nickname": payload.get("author", {}).get("nickname", "") or "unknown",
             "card": "",
             "sex": "unknown",
@@ -174,5 +189,5 @@ async def parse_open_message_event(current_msg_id,payload: dict):
         }
     }
     if group_openid:
-        event["group_id"] = group_digit_id
+        event["group_id"] = group_id
     return event
