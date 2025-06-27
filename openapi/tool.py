@@ -1,6 +1,7 @@
 import time
 
-from config import log, VERSION, SEQ_CACHE_SIZE, WS_ENDPOINT, WEBHOOK_ENDPOINT, TRANSPARENT_OPENID, SANDBOX_MODE
+from config import log, VERSION, SEQ_CACHE_SIZE, WS_ENDPOINT, WEBHOOK_ENDPOINT, TRANSPARENT_OPENID, SANDBOX_MODE, \
+    BOT_APPID
 from openapi.database import POOL_SIZE, pool, get_or_create_digit_id, get_union_id_by_digit_id, get_pending_counts
 from openapi.network import msg_seq_cache
 from openapi.token_manage import token_manager

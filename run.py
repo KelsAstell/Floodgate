@@ -1,22 +1,21 @@
-import asyncio
 import sys
 import json
-from contextlib import asynccontextmanager
-from typing import Optional
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+import asyncio
+from typing import Optional
 from pydantic import BaseModel
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Request, WebSocket
+from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from openapi.database import init_db, get_usage_count, flush_usage_to_db
+from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id
 from openapi.encrypt import verifier
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add
 from openapi.token_manage import token_manager
 from openapi.network import post_im_message, delete_im_message, post_guild_image
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.interval import IntervalTrigger
-
-from config import *
 from openapi.tool import check_config, get_health
+from config import *
 
 
 # OpenAPI请求体
@@ -32,7 +31,6 @@ ACCESS_TOKEN = None
 WSS_GATEWAY = None
 
 
-
 async def refresh_access_token():
     global ACCESS_TOKEN
     try:
@@ -40,6 +38,7 @@ async def refresh_access_token():
         log.debug(f"Token刷新成功:{ACCESS_TOKEN}")
     except Exception as e:
         log.error(f"Token刷新失败:{e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -53,6 +52,7 @@ async def lifespan(app: FastAPI):
     log.success(f"Floodgate已启动，耗时: {end_time - start_time:.2f} 秒")
     yield
     scheduler.shutdown()
+
 
 app = FastAPI(lifespan=lifespan)
 connected_clients = set()
@@ -97,7 +97,6 @@ async def openapi_webhook(request: Request):
                     log.error(f"发送 WebSocket 消息失败: {e}")
     return {"status": "ignored", "op": op}
 
-from fastapi import WebSocket
 
 @app.websocket(WS_ENDPOINT)
 async def websocket_endpoint(websocket: WebSocket):
@@ -107,21 +106,14 @@ async def websocket_endpoint(websocket: WebSocket):
     async with connected_clients_lock:
         connected_clients.add(websocket)
         log.success(f"新 OneBotv11/DeluxeBOT 客户端接入，当前连接数: {len(connected_clients)}")
+        # 这里之后做连接升级
     # 发送 lifecycle.connect 事件
     try:
-        lifecycle_event = {
-            "time": int(time.time()),
-            "self_id": str(BOT_APPID),  # self_id 必须是字符串
-            "post_type": "meta_event",
-            "meta_event_type": "lifecycle",
-            "sub_type": "connect"
-        }
-        await websocket.send_json(lifecycle_event)
+        await websocket.send_json({"time": int(time.time()),"self_id": str(BOT_APPID),"post_type": "meta_event","meta_event_type": "lifecycle","sub_type": "connect"})
         log.success("已发送握手包")
     except Exception as e:
         log.error(f"发送握手包失败: {e}")
         return
-    # 启动心跳任务
     async def heartbeat():
         while True:
             try:
@@ -138,43 +130,22 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 message = json.loads(raw_data)
                 if message.get("action") == "send_msg":
-                    group_id = message["params"].get("group_id")
-                    user_id = message["params"].get("user_id")
-                    msg_list = message["params"].get("message",["","",{"type": "text", "data": {"text": "未知异常"}}])
+                    params = message["params"]
+                    msg_list = params.get("message",["","",{"type": "text", "data": {"text": "未知异常"}}])
                     if msg_list[0].get("type") == "at" and REMOVE_AT:
                         msg_list = msg_list[2:]
-                    ret = await post_im_message(user_id, group_id, convert_cq_to_openapi_message(msg_list))
-                    await websocket.send_json({
-                            "status": "ok",
-                            "retcode": 0,
-                            "data": {
-                                "message_id": ret.get("id")
-                            },
-                            "echo": message["echo"]
-                        })
+                    ret = await post_im_message(params.get("user_id"), params.get("group_id"), convert_cq_to_openapi_message(msg_list))
+                    await websocket.send_json({"status": "ok","retcode": 0,"data": {"message_id": ret.get("id")},"echo": message["echo"]})
                 elif message.get("action") == "delete_msg":
                     message_id = message["params"].get("message_id")
                     if message_id:
                         await delete_im_message(message["params"].get("user_id"), message["params"].get("group_id"), message_id)
-                        await websocket.send_json({
-                            "status": "ok",
-                            "retcode": 0,
-                            "data": {},
-                            "echo": message["echo"]
-                        })
+                        await websocket.send_json({"status": "ok","retcode": 0,"data": {},"echo": message["echo"]})
                 else:
-                    await websocket.send_json({
-                        "status": "failed",
-                        "retcode": 10001,
-                        "msg": "Unsupported action"
-                    })
+                    await websocket.send_json({"status": "failed","retcode": 10001,"msg": "Unsupported action"})
             except Exception as e:
                 log.error(f"[WebSocket] 处理消息出错: {e}")
-                await websocket.send_json({
-                    "status": "failed",
-                    "retcode": 10002,
-                    "msg": f"Error parsing or processing request: {e}"
-                })
+                await websocket.send_json({"status": "failed","retcode": 10002,"msg": f"Error parsing or processing request: {e}"})
     except Exception as e:
         log.warning(f"[WebSocket] 断开连接：{e}")
     finally:
@@ -197,10 +168,19 @@ async def user_stats(request: UserStatsRequest):
     usage_count = await get_usage_count(request.id)
     return {"usage_count": usage_count}
 
+
 @app.get("/health")
 async def health_check():
     return await get_health(start_time, len(connected_clients))
 
+@app.get("/avatar")
+async def avatar(id: int):
+    openid = await get_union_id_by_digit_id(id)
+    if not openid:
+        return {"error": "User not found"}
+    return {
+        "url": f"https://q.qlogo.cn/qqapp/{BOT_APPID}/{openid}/640"
+    }
 
 CURRENT_MSG_ID = 0
 if __name__ == "__main__":
@@ -211,7 +191,5 @@ if __name__ == "__main__":
     import ctypes
     ctypes.windll.kernel32.SetConsoleTitleW(f"Floodgate {VERSION}" if not CUSTOM_TITLE else CUSTOM_TITLE)
     asyncio.run(check_config())
-
     uvicorn.run(app, host="0.0.0.0", port=PORT)
-
 

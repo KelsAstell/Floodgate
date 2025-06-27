@@ -73,6 +73,7 @@ async def _ob_verify(websocket: WebSocket):
     if not token == f"Bearer {OB_ACCESS_TOKEN}":
         raise HTTPException(status_code=401, detail="Invalid Signature")
 
+
 class WebhookVerifier:
     def __init__(self):
         pass

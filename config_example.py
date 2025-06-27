@@ -3,6 +3,7 @@ BOT_SECRET = ""                                             # 你的 AppSecret (
 BOT_APPID = 0                                               # 你的AppID(机器人ID)，请自行从开放平台获取
 OB_ACCESS_TOKEN = ""                                        # onebot实现的 .env文件内的 onebot_access_token，不填写时禁用握手验证，可能降低安全性
 
+
 #——————————————————常规配置（你可能会偶尔改的东西）———————————————#
 # 可以改，也可以不改
 SANDBOX_MODE = False                                        # 沙盒模式，我已经默认设置为 False 了，如果你有测试需求，记得改成 True
@@ -16,15 +17,12 @@ ADD_RETURN = False                                          # 是否在群聊文
 SANDBOX_CHANNEL_ID = 0                                      # 沙箱频道ID，使用 /upload_image 接口时，若未填写 channel_id ，则使用该参数
 
 
-
 #—————————————————特殊配置（给高级用户用的选项）——————————————————#
 # 孩子们，对于为什么要迁移我没话说，哦不对，还是有的，请看下一行
 # ids.json需要和本文件放在同级目录
 MIGRATE_IDS = False                                         # 是否迁移 Gensokyo 的idmap数据，默认为False，注意，只支持最早期的数字id，不支持idmap_pro
 TRANSPARENT_OPENID = False                                  # OpenID 透传，好东西...但是除非你知道你在干什么，否则不要启用这个选项，
                                                             # 需要你的 OneBot 实现自行适配string格式的ID，如果你开了这个选项，那你用的一定不是原生OneBot
-
-
 
 #—————————————————CONSTANT(常量，正常来说不需要动)——————————————#
 # 女士/先生/福瑞/无机生命/阳光哥布林们，我的意思是，不要动，除非艾斯说了可以动，就这么简单
