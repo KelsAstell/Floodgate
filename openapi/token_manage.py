@@ -30,6 +30,11 @@ class AccessTokenManager:
             log.success(log_message)
         return self._access_token
 
+    async def remaining_seconds(self) -> int:
+        if self._expires_in is None:
+            return -1
+        return int((self._expires_in - datetime.now(timezone.utc)).total_seconds())
+
     async def _refresh_access_token(self):
         payload = {
             "appId": str(BOT_APPID),

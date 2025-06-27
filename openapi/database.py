@@ -1,6 +1,7 @@
 import os
 import aiosqlite
 from aiocache import cached, Cache
+from collections import defaultdict
 from contextlib import asynccontextmanager
 import asyncio
 
@@ -150,25 +151,43 @@ async def get_union_id_by_digit_id(digit_id: int) -> str:
             return row[0] if row else None
 
 
-# 无需实时更新缓存，更轻量
+# 更新内存缓存
 async def increment_usage(id):
-    async with aiosqlite.connect(DB_NAME) as db:
-        if TRANSPARENT_OPENID:
-            await db.execute('''
-                INSERT INTO usage (union_id, usage_cnt)
-                VALUES (?, 1)
-                ON CONFLICT(union_id) DO UPDATE SET
-                    usage_cnt = usage_cnt + 1
-            ''', (id,))
-        else:
-            await db.execute('''
-                    INSERT INTO usage (digit_id, usage_cnt)
-                    VALUES (?, 1)
-                    ON CONFLICT(digit_id) DO UPDATE SET
-                        usage_cnt = usage_cnt + 1
-                ''', (id,))
-        await db.commit()
-        return True
+    global _pending_counts
+    _pending_counts[id] += 1
+    return True
+
+
+_pending_counts = defaultdict(int)
+_flush_lock = asyncio.Lock()
+
+async def get_pending_counts():
+    return len(dict(_pending_counts))
+async def flush_usage_to_db():
+    global _pending_counts
+    async with _flush_lock:
+        if not _pending_counts:
+            return
+        to_write = dict(_pending_counts)
+        _pending_counts.clear()
+        async with aiosqlite.connect(DB_NAME) as db:
+            for id, count in to_write.items():
+                if TRANSPARENT_OPENID:
+                    await db.execute('''
+                        INSERT INTO usage (union_id, usage_cnt)
+                        VALUES (?, ?)
+                        ON CONFLICT(union_id) DO UPDATE SET
+                            usage_cnt = usage_cnt + ?
+                    ''', (id, count, count))
+                else:
+                    await db.execute('''
+                        INSERT INTO usage (digit_id, usage_cnt)
+                        VALUES (?, ?)
+                        ON CONFLICT(digit_id) DO UPDATE SET
+                            usage_cnt = usage_cnt + ?
+                    ''', (id, count, count))
+            await db.commit()
+            log.debug(f"已批量刷新 {len(to_write)} 条 usage 记录到数据库")
 
 
 @cached(ttl=60, cache=Cache.MEMORY)

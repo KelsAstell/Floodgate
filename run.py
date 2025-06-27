@@ -1,19 +1,13 @@
 import asyncio
 import sys
-
-import aiohttp
-import base64
-import hashlib
 import json
-import time
 from contextlib import asynccontextmanager
-from io import BytesIO
 from typing import Optional
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from openapi.database import init_db, get_usage_count
+from openapi.database import init_db, get_usage_count, flush_usage_to_db
 from openapi.encrypt import verifier
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add
 from openapi.token_manage import token_manager
@@ -22,8 +16,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from config import *
-from openapi.tool import check_config
-
+from openapi.tool import check_config, get_health
 
 
 # OpenAPI请求体
@@ -53,8 +46,8 @@ async def lifespan(app: FastAPI):
     await init_db()
     await refresh_access_token()
     scheduler = AsyncIOScheduler()
-    trigger = IntervalTrigger(seconds=30)
-    scheduler.add_job(refresh_access_token, trigger=trigger)
+    scheduler.add_job(flush_usage_to_db, trigger=IntervalTrigger(minutes=5))
+    scheduler.add_job(refresh_access_token, trigger=IntervalTrigger(seconds=30))
     scheduler.start()
     end_time = time.time()
     log.success(f"Floodgate已启动，耗时: {end_time - start_time:.2f} 秒")
@@ -191,28 +184,22 @@ async def websocket_endpoint(websocket: WebSocket):
             log.info(f"[WebSocket] 客户端已移除，当前连接数: {len(connected_clients)}")
 
 
-# @app.middleware("http")
-# async def log_requests(request: Request, call_next):
-#     body = await request.body()
-#     print(f"Request URL: {request.method} {request.url}")
-#     print(f"Request Body: {body.decode('utf-8')}")
-#     response = await call_next(request)
-#     return response
-
-
 # 频道图片上传接口
 @app.post("/upload_image")
 async def upload_image(request: Request):
     data = await request.json()
     return await post_guild_image(data)
 
+class UserStatsRequest(BaseModel):
+    id: int
 @app.post("/user_stats")
-async def user_stats(request: Request):
-    data = await request.json()
-    if not (id := data.get("id")):
-        return {"error": "Param 'id' is required"}
-    return {"usage_count": await get_usage_count(id)}
+async def user_stats(request: UserStatsRequest):
+    usage_count = await get_usage_count(request.id)
+    return {"usage_count": usage_count}
 
+@app.get("/health")
+async def health_check():
+    return await get_health(start_time, len(connected_clients))
 
 
 CURRENT_MSG_ID = 0

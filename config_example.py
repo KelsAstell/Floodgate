@@ -33,4 +33,4 @@ QQ_API_BASE_SANDBOX = "https://sandbox.api.sgroup.qq.com"   # 沙箱环境API地
 VERSION = "0.0.1-Beta"                                      # 版本号，小猫，你可以改版本号
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | <level>{level: <8}</level> | <level>{message}</level>"
 from loguru import logger as log                            # 不要删，会让 Floodgate 鼠掉，你可以逝一下
-
+SEQ_CACHE_SIZE = 300

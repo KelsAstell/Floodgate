@@ -1,4 +1,11 @@
-from config import log
+import time
+
+from config import log, VERSION, SEQ_CACHE_SIZE, WS_ENDPOINT, WEBHOOK_ENDPOINT, TRANSPARENT_OPENID, SANDBOX_MODE
+from openapi.database import POOL_SIZE, pool, get_or_create_digit_id, get_union_id_by_digit_id, get_pending_counts
+from openapi.network import msg_seq_cache
+from openapi.token_manage import token_manager
+
+
 async def check_config():
     from config import BOT_SECRET, BOT_APPID, SANDBOX_CHANNEL_ID
     errors = []
@@ -18,3 +25,46 @@ async def check_config():
         exit(1)
     log.success("已通过基础配置检查")
     return True
+
+
+async def get_health(start_time,connected_clients):
+    now = time.time()
+    uptime_sec = int(now - start_time)
+    hours, remainder = divmod(uptime_sec, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    try:
+        token_remain = await token_manager.remaining_seconds()
+    except Exception as e:
+        log.warning(f"Token 剩余时间计算失败: {e}")
+        token_remain = None
+
+    return {
+        "status": "ok",
+        "env": 'sandbox' if SANDBOX_MODE else 'production',
+        "version": VERSION, # 版本号
+        "repo": "https://github.com/KelsAstell/Floodgate",
+        "uptime": f"{hours}h {minutes}m {seconds}s", # 运行时间
+        "clients": connected_clients, # 当前ws客户端数
+        "access_token": { # access_token 状态
+            "valid": await token_manager.get_access_token(only_get_token=True) is not None,
+            "remain_seconds": token_remain
+        },
+        "database": { # 数据库状态
+            "pool_size": POOL_SIZE,
+            "queue": pool._queue.qsize() if pool._queue else 0
+        },
+        "cache": {
+            "message": { # 消息缓存状态
+                "seq_cache_size": len(msg_seq_cache),
+                "seq_cache_size_max": SEQ_CACHE_SIZE,
+            },
+            "usage": {
+                "flush_size": await get_pending_counts()
+            }
+        },
+        "endpoints": { # 接口地址
+            "websocket": WS_ENDPOINT,
+            "webhook": WEBHOOK_ENDPOINT
+        },
+        "transparent": TRANSPARENT_OPENID
+    }

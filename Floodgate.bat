@@ -1,6 +1,6 @@
 @echo off
-:: 设置项目根目录和虚拟环境路径
-set PROJECT_DIR=D:\Workspace\Floodgate
+:: 设置项目根目录和虚拟环境路径（使用相对路径）
+set PROJECT_DIR=..\Floodgate
 set VENV_DIR=%PROJECT_DIR%\venv
 
 :: 检查是否存在虚拟环境

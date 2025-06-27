@@ -7,12 +7,12 @@ import asyncio
 from cachetools import TTLCache
 from fastapi import HTTPException
 
-from config import QQ_API_BASE, log, ADD_RETURN, SANDBOX_CHANNEL_ID, TRANSPARENT_OPENID
+from config import *
 from openapi.database import get_union_id_by_digit_id, increment_usage
 from openapi.parse_open_event import message_id_to_open_id
 from openapi.token_manage import token_manager
 
-msg_seq_cache = TTLCache(maxsize=100, ttl=300)
+msg_seq_cache = TTLCache(maxsize=SEQ_CACHE_SIZE, ttl=300)
 # 异步锁，防止并发问题
 cache_lock = asyncio.Lock()
 
