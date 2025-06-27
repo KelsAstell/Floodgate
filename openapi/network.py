@@ -8,9 +8,10 @@ from cachetools import TTLCache
 from fastapi import HTTPException
 
 from config import *
-from openapi.database import get_union_id_by_digit_id, increment_usage
+from openapi.database import get_union_id_by_digit_id, increment_usage, get_or_create_digit_id
 from openapi.parse_open_event import message_id_to_open_id
 from openapi.token_manage import token_manager
+from openapi.tool import get_health
 
 msg_seq_cache = TTLCache(maxsize=SEQ_CACHE_SIZE, ttl=300)
 # 异步锁，防止并发问题
@@ -134,6 +135,39 @@ async def post_guild_image(data):
         except Exception as e:
             log.error(f"Image uploaded failed: {e}")
             return {"error": f"Upload failed: {e}"}
+
+async def post_health_message(start_time, clients, d):
+    user_openid = d.get("author",{}).get("union_openid")
+    group_openid = d.get("group_openid")
+    if group_openid:
+        endpoint = "/v2/groups"
+        union_id = group_openid
+    else:
+        endpoint = "/v2/users"
+        union_id = user_openid
+    data = await get_health(start_time, clients)
+    cache = data.get('cache')
+    msg = "\n" if group_openid else ""
+    msg += (f"[运行状态：{'✅已连接' if data['clients'] > 0 else '❌未连接'}]\n环境：{data['env']}\n版本号：{data['version']}\n"
+           f"运行时长：{data['uptime']}\nToken有效期：{data['access_token']['remain_seconds']}秒\n"
+           f"内存缓存利用率：{100*cache['message']['seq_cache_size']/cache['message']['seq_cache_size_max']:.2f}%\n"
+           f"已提交的统计数据：{cache['usage']['flush_size']}")
+    payload = {"content":msg, "msg_type":0,"msg_id":d.get("id", "0"),"msg_seq":await get_next_msg_seq(d.get("id", "0"))}
+    return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
+
+
+async def post_maintaining_message(d):
+    user_openid = d.get("author",{}).get("union_openid")
+    group_openid = d.get("group_openid")
+    if group_openid:
+        endpoint = "/v2/groups"
+        union_id = group_openid
+    else:
+        endpoint = "/v2/users"
+        union_id = user_openid
+    msg = MAINTAINING_MESSAGE if MAINTAINING_MESSAGE else f"{BOT_NAME}暂时没有理你，可能是正在维护...再等等吧"
+    payload = {"content":msg, "msg_type":0,"msg_id":d.get("id", "0"),"msg_seq":await get_next_msg_seq(d.get("id", "0"))}
+    return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
 
 async def post_im_message(user_id, group_id, message):
     msg_id = await message_id_to_open_id(user_id, group_id)

@@ -2,6 +2,7 @@
 BOT_SECRET = ""                                             # 你的 AppSecret (机器人密钥)，请自行从开放平台获取
 BOT_APPID = 0                                               # 你的AppID(机器人ID)，请自行从开放平台获取
 OB_ACCESS_TOKEN = ""                                        # onebot实现的 .env文件内的 onebot_access_token，不填写时禁用握手验证，可能降低安全性
+BOT_NAME = "BOT"                                            # 机器人名字，可不填
 
 
 #——————————————————常规配置（你可能会偶尔改的东西）———————————————#
@@ -15,6 +16,7 @@ WS_ENDPOINT = "/ws"                                         # websocket地址，
 CUSTOM_TITLE = ""                                           # 如果你这里不填的话，我就要使用默认的标题了哦
 ADD_RETURN = False                                          # 是否在群聊文字消息的第一位加一个\n，这样可能会好看点？DeluxeBOT内部做了相应适配，所以这个选项默认关闭
 SANDBOX_CHANNEL_ID = 0                                      # 沙箱频道ID，使用 /upload_image 接口时，若未填写 channel_id ，则使用该参数
+MAINTAINING_MESSAGE = ""                                    # 维护公告，可不填
 
 
 #—————————————————特殊配置（给高级用户用的选项）——————————————————#

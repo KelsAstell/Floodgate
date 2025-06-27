@@ -13,7 +13,8 @@ from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_un
 from openapi.encrypt import verifier
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add
 from openapi.token_manage import token_manager
-from openapi.network import post_im_message, delete_im_message, post_guild_image
+from openapi.network import post_im_message, delete_im_message, post_guild_image, get_next_msg_seq, call_open_api, \
+    post_health_message, post_maintaining_message
 from openapi.tool import check_config, get_health
 from config import *
 
@@ -80,14 +81,21 @@ async def openapi_webhook(request: Request):
             ob_data = await parse_group_add(d)
         elif t in ["GROUP_AT_MESSAGE_CREATE", "C2C_MESSAGE_CREATE"]:
             global CURRENT_MSG_ID
+            if d.get("content", "").strip().startswith("/floodgate"):
+                await post_health_message(start_time,len(connected_clients),d)
+                return {"status": "ok", "op": op}
             ob_data = await parse_open_message_event(CURRENT_MSG_ID,d)
             if not ob_data:
                 log.info("平台推送事件消息已去重")
-                return {"status": "ignored", "op": op}
+                return {"status": "duplicate", "op": op}
             CURRENT_MSG_ID = ob_data.get("message_id")
         else:
             log.success(f"暂不支持的事件类型：{t}")
-            return {"status": "ignored", "op": op}
+            return {"status": "unsupported", "op": op}
+        if not connected_clients:  # 判断是否没有已连接的客户端
+            await post_maintaining_message(d)
+            log.warning(f"没有已连接的客户端，事件消息跳过！")
+            return {"status": "maintaining", "op": op}
         async with connected_clients_lock:
             for client in connected_clients:
                 try:
