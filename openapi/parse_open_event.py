@@ -51,7 +51,6 @@ def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, A
     for seg in segments:
         seg_type = seg.get("type")
         data = seg.get("data", {})
-
         if seg_type == "text":
             text = data.get("text", "")
             if text:
@@ -101,13 +100,14 @@ def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, A
                 "content": markdown_data.get("content"),
                 "keyboard": markdown_data.get("keyboard")
             }
-        elif seg_type == "silk": # 我摊牌了，我没测试silk..因为我的使用场景里不包含音频
-            # Onebot端实现应该是：MessageSegment("silk", {"silk": "base64://..."})
-            # 我没测试，我不知道，有问题你可以fork改改（？
+        elif seg_type == "record":
+            # 都唐完了，最开始我没测试silk..因为我的使用场景里不包含音频
+            # 但是现在测完了应该ok
+            # Onebot端实现应该是：MessageSegment.record(f"base64://{silk_base64}")
             return {
                 "type": "file",
                 "file_type": 3,
-                "data": data.get("silk")
+                "data": data.get("file")
             }
         else:
             rich_segments.append({

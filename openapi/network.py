@@ -1,12 +1,14 @@
 import base64
+import hashlib
+from io import BytesIO
 
 import aiohttp
 import asyncio
 from cachetools import TTLCache
 from fastapi import HTTPException
 
-from config import QQ_API_BASE, log, ADD_RETURN
-from openapi.database import get_union_id_by_digit_id
+from config import QQ_API_BASE, log, ADD_RETURN, SANDBOX_CHANNEL_ID
+from openapi.database import get_union_id_by_digit_id, increment_usage
 from openapi.parse_open_event import message_id_to_open_id
 from openapi.token_manage import token_manager
 
@@ -80,11 +82,65 @@ async def call_open_api(method: str, endpoint: str, payload: dict = None):
             raise HTTPException(status_code=503, detail=f"请求OpenAPI时出现异常: {e}")
 
 
+async def post_guild_image(data):
+    base64_image = data.get("base64_image", "")
+    file_image = data.get("file_image", "")
+    if not base64_image and not file_image:
+        return {"error": "Param 'base64_image' or 'file_image' is required"}
+    channel_id = data.get("channel_id", SANDBOX_CHANNEL_ID)
+    if channel_id == 0:
+        return {"error": "'channel_id' is required"}
+    access_token = await token_manager.get_access_token(only_get_token=True)
+    if not access_token:
+        return {"error": "Failed to get ACCESS_TOKEN"}
+    # 根据参数选择图片数据来源，支持文件直读
+    if base64_image:
+        image_data = base64.b64decode(base64_image)
+    elif file_image:
+        try:
+            with open(file_image, "rb") as f:
+                image_data = f.read()
+        except (IOError, FileNotFoundError) as e:
+            log.error(f"文件读取失败: {e}")
+            return {"error": "文件读取失败，请确认 file_image 参数是否正确"}
+    url = f"https://api.sgroup.qq.com/channels/{channel_id}/messages"
+    headers = {
+        "Authorization": f"QQBot {access_token}"
+    }
+    form = aiohttp.FormData()
+    form.add_field(
+        name="file_image",
+        value=BytesIO(image_data),
+        filename="image.jpg",
+        content_type="image/jpeg"
+    )
+    form.add_field(
+        name="msg_id",
+        value="1024"
+    )
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(url, headers=headers, data=form, ssl=False, timeout=10.0) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    log.debug(f"图片上传成功: {data}")
+                    md5_hash = hashlib.md5(image_data).hexdigest().upper()
+                    image_url = f"https://gchat.qpic.cn/qmeetpic/0/0-0-{md5_hash}/0"
+                    return {"url": image_url}
+                else:
+                    text = await response.text()
+                    log.error(f"Image uploaded failed: {text}")
+                    return {"error": text}
+        except Exception as e:
+            log.error(f"Image uploaded failed: {e}")
+            return {"error": f"Upload failed: {e}"}
+
 async def post_im_message(user_digit_id, group_digit_id, message):
     msg_id = await message_id_to_open_id(user_digit_id, group_digit_id)
     msg_seq = await get_next_msg_seq(msg_id)
     endpoint = "/v2/groups" if group_digit_id else "/v2/users"
     digit_id = group_digit_id if group_digit_id else user_digit_id
+    await increment_usage(digit_id)
     if message.get("type") == "text":
         if group_digit_id and ADD_RETURN and not message["text"].startswith("\n"):
             payload = {"content": "\n" + message["text"], "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq}
@@ -148,7 +204,7 @@ async def post_im_message(user_digit_id, group_digit_id, message):
             if message["data"].startswith("base64://"):
                 payload = {"file_type":3,"file_data":message["data"][9:]}
                 silk = await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/files", payload)
-                payload = {"msg_type":7,"media":{"file_info":silk},"msg_id":msg_id,"msg_seq":await get_next_msg_seq(msg_id)}
+                payload = {"msg_type":7,"media":{"file_info":silk.get("file_info")},"msg_id":msg_id,"msg_seq":await get_next_msg_seq(msg_id)}
                 return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
             else:
                 log.warning("传入的silk不是合法的base64编码")

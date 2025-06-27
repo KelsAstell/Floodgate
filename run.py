@@ -17,7 +17,7 @@ from openapi.database import init_db
 from openapi.encrypt import verifier
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add
 from openapi.token_manage import token_manager
-from openapi.network import post_im_message, delete_im_message
+from openapi.network import post_im_message, delete_im_message, post_guild_image
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -208,48 +208,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 
-@app.post("/upload_base64_image")
-async def upload_base64_image(request: Request):
+@app.post("/upload_image")
+async def upload_image(request: Request):
     data = await request.json()
-    base64_image = data.get("base64_image", "")
-    channel_id = data.get("channel_id", "")
-    if not channel_id:
-        return {"error": "channel_id is required"}
-    image_data = base64.b64decode(base64_image)
-    access_token = await token_manager.get_access_token(only_get_token=True)
-    if not access_token:
-        return {"error": "Failed to get ACCESS_TOKEN"}
-    url = f"https://api.sgroup.qq.com/channels/{channel_id}/messages"
-    headers = {
-        "Authorization": f"QQBot {access_token}"
-    }
-    form = aiohttp.FormData()
-    form.add_field(
-        name="file_image",
-        value=BytesIO(image_data),
-        filename="image.jpg",
-        content_type="image/jpeg"
-    )
-    form.add_field(
-        name="msg_id",
-        value="1024"
-    )
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post(url, headers=headers, data=form, ssl=False, timeout=10.0) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    log.debug(f"图片上传成功: {data}")
-                    md5_hash = hashlib.md5(image_data).hexdigest().upper()
-                    image_url = f"https://gchat.qpic.cn/qmeetpic/0/0-0-{md5_hash}/0"
-                    return {"url": image_url}
-                else:
-                    text = await response.text()
-                    log.error(f"Image uploaded failed: {text}")
-                    return {"error": text}
-        except Exception as e:
-            log.error(f"Image uploaded failed: {e}")
-            return {"error": f"Upload failed: {e}"}
+    return await post_guild_image(data)
+
 
 
 CURRENT_MSG_ID = 0

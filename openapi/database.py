@@ -140,6 +140,7 @@ async def get_union_id_by_digit_id(digit_id: int) -> str:
             return row[0] if row else None
 
 
+# 无需实时更新缓存，更轻量
 async def increment_usage(digit_id: int) -> bool:
     async with aiosqlite.connect(DB_NAME) as db:
         try:
@@ -150,27 +151,16 @@ async def increment_usage(digit_id: int) -> bool:
                     usage_cnt = usage_cnt + 1
             ''', (digit_id,))
             await db.commit()
-
-            # 更新缓存
-            await update_usage_cache(digit_id)
-
             return True
         except aiosqlite.Error as e:
             log.error(f"Database error: {e}")
             return False
 
-@cached(ttl=3600, cache=Cache.MEMORY)
+
+@cached(ttl=60, cache=Cache.MEMORY)
 async def get_usage_count(digit_id: int) -> int:
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute('SELECT usage_cnt FROM usage WHERE digit_id=?', (digit_id,)) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else 0
 
-async def update_usage_cache(digit_id: int):
-    """手动更新缓存"""
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute('SELECT usage_cnt FROM usage WHERE digit_id=?', (digit_id,)) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                usage_cache = get_usage_count.get_cache()
-                await usage_cache.set(f"get_usage_count({digit_id})", row[0])
