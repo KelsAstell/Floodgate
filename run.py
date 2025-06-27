@@ -13,7 +13,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from openapi.database import init_db
+from openapi.database import init_db, get_usage_count
 from openapi.encrypt import verifier
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add
 from openapi.token_manage import token_manager
@@ -108,12 +108,12 @@ from fastapi import WebSocket
 
 @app.websocket(WS_ENDPOINT)
 async def websocket_endpoint(websocket: WebSocket):
+    if OB_ACCESS_TOKEN:
+        await verifier.verify_onebot_access_token(websocket)
     await websocket.accept()
     async with connected_clients_lock:
         connected_clients.add(websocket)
         log.success(f"新 OneBotv11/DeluxeBOT 客户端接入，当前连接数: {len(connected_clients)}")
-
-
     # 发送 lifecycle.connect 事件
     try:
         lifecycle_event = {
@@ -137,9 +137,7 @@ async def websocket_endpoint(websocket: WebSocket):
             except Exception as exc:
                 log.warning(f"心跳失败，断开连接: {exc}")
                 break
-
     heartbeat_task = asyncio.create_task(heartbeat())
-
     try:
         while True:
             raw_data = await websocket.receive_text()
@@ -153,10 +151,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     if msg_list[0].get("type") == "at" and REMOVE_AT:
                         msg_list = msg_list[2:]
                     ret = await post_im_message(user_id, group_id, convert_cq_to_openapi_message(msg_list))
-                    # if group_id:
-                    #     await post_group_message(user_id, group_id, convert_cq_to_openapi_message(msg_list))
-                    # else:
-                    #     await post_direct_message(user_id, None, convert_cq_to_openapi_message(msg_list))
                     await websocket.send_json({
                             "status": "ok",
                             "retcode": 0,
@@ -206,12 +200,18 @@ async def websocket_endpoint(websocket: WebSocket):
 #     return response
 
 
-
-
+# 频道图片上传接口
 @app.post("/upload_image")
 async def upload_image(request: Request):
     data = await request.json()
     return await post_guild_image(data)
+
+@app.post("/user_stats")
+async def user_stats(request: Request):
+    data = await request.json()
+    if not (id := data.get("id")):
+        return {"error": "Param 'id' is required"}
+    return {"usage_count": await get_usage_count(id)}
 
 
 

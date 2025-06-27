@@ -1,7 +1,9 @@
 import binascii
 import json
 from fastapi import Response, Request, HTTPException
-from config import BOT_SECRET, log
+from starlette.websockets import WebSocket
+
+from config import BOT_SECRET, log, OB_ACCESS_TOKEN
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.exceptions import InvalidSignature
@@ -65,12 +67,21 @@ async def _verify_signature_from_request(request: Request) -> bool:
         log.error(f"签名校验失败: {e}")
         return False
 
+
+async def _ob_verify(websocket: WebSocket):
+    token = websocket.headers.get("authorization")
+    if not token == f"Bearer {OB_ACCESS_TOKEN}":
+        raise HTTPException(status_code=401, detail="Invalid Signature")
+
 class WebhookVerifier:
     def __init__(self):
         pass
 
     async def verify_plain_token(self, payload: dict):
         return await _webhook_verify(payload)
+
+    async def verify_onebot_access_token(self,websocket: WebSocket):
+        return await _ob_verify(websocket)
 
     async def verify_signature(self, request: Request):
         return await _verify_signature_from_request(request)

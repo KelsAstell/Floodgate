@@ -204,10 +204,20 @@ async def post_im_message(user_digit_id, group_digit_id, message):
             if message["data"].startswith("base64://"):
                 payload = {"file_type":3,"file_data":message["data"][9:]}
                 silk = await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/files", payload)
-                payload = {"msg_type":7,"media":{"file_info":silk.get("file_info")},"msg_id":msg_id,"msg_seq":await get_next_msg_seq(msg_id)}
-                return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
+            elif message["data"].startswith("http://") or message["data"].startswith("https://"):
+                payload = {"event_id":msg_id,"file_type":3,"url":message["data"]}
+                silk = await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/files", payload)
+            elif message["data"].startswith("file:///"):
+                file_path = message["data"].lstrip("file:///")
+                with open(file_path, "rb") as silk_file:
+                    encoded_str = base64.b64encode(silk_file.read()).decode("utf-8")
+                payload = {"file_type":3,"file_data":encoded_str}
+                silk = await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/files", payload)
             else:
-                log.warning("传入的silk不是合法的base64编码")
+                log.warning("传入的silk参数不是正确的base64编码、url或文件路径")
+                return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", {"content": "传入的silk参数不是正确的base64编码、url或文件路径", "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq})
+            payload = {"msg_type":7,"media":{"file_info":silk.get("file_info")},"msg_id":msg_id,"msg_seq":await get_next_msg_seq(msg_id)}
+            return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", payload)
     else:
         return await call_open_api("POST", f"{endpoint}/{await get_union_id_by_digit_id(digit_id)}/messages", {"content": "暂不支持该消息类型", "msg_type": 0, "msg_id": msg_id, "msg_seq":msg_seq})
 
