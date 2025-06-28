@@ -3,6 +3,8 @@ BOT_SECRET = ""                                             # 你的 AppSecret (
 BOT_APPID = 0                                               # 你的AppID(机器人ID)，请自行从开放平台获取
 OB_ACCESS_TOKEN = ""                                        # onebot实现的 .env文件内的 onebot_access_token，不填写时禁用握手验证，可能降低安全性
 BOT_NAME = "BOT"                                            # 机器人名字，可不填
+ADMIN_LIST = []                                             # 管理员的数字ID，如果 TRANSPARENT_OPENID 为 True （开启透传模式）时，
+                                                            # 需要填写OpenID，可在DEBUG模式下获取，用于部分管理功能调用
 
 
 #——————————————————常规配置（你可能会偶尔改的东西）———————————————#
