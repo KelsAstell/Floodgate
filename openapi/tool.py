@@ -1,7 +1,8 @@
 import time
 
-from config import log, VERSION, SEQ_CACHE_SIZE, WS_ENDPOINT, WEBHOOK_ENDPOINT, TRANSPARENT_OPENID, SANDBOX_MODE
-from openapi.database import POOL_SIZE, pool, get_pending_counts
+from config import log, VERSION, SEQ_CACHE_SIZE, WS_ENDPOINT, WEBHOOK_ENDPOINT, TRANSPARENT_OPENID, SANDBOX_MODE, \
+    MAINTAINING_MESSAGE, BOT_NAME, ADMIN_LIST
+from openapi.database import POOL_SIZE, pool, get_pending_counts, get_or_create_digit_id
 
 from openapi.token_manage import token_manager
 
@@ -17,7 +18,8 @@ async def check_config():
     if not isinstance(SANDBOX_CHANNEL_ID, int):
         errors.append("SANDBOX_CHANNEL_ID 必须为整数")
     if SANDBOX_CHANNEL_ID == 0:
-        warnings.append("SANDBOX_CHANNEL_ID 未填，使用 /upload_image 接口时需要在请求体里提供 channel_id，或填写配置中的 SANDBOX_CHANNEL_ID")
+        warnings.append(
+            "SANDBOX_CHANNEL_ID 未填，使用 /upload_image 接口时需要在请求体里提供 channel_id，或填写配置中的 SANDBOX_CHANNEL_ID")
     if errors:
         for error in errors:
             log.error(f"[配置错误] {error}")
@@ -27,7 +29,7 @@ async def check_config():
     return True
 
 
-async def get_health(start_time,connected_clients):
+async def get_health(start_time, connected_clients):
     from openapi.network import msg_seq_cache
     now = time.time()
     uptime_sec = int(now - start_time)
@@ -42,20 +44,20 @@ async def get_health(start_time,connected_clients):
     return {
         "status": "ok",
         "env": 'sandbox' if SANDBOX_MODE else 'production',
-        "version": VERSION, # 版本号
+        "version": VERSION,  # 版本号
         "repo": "https://github.com/KelsAstell/Floodgate",
-        "uptime": f"{hours}h {minutes}m {seconds}s", # 运行时间
-        "clients": connected_clients, # 当前ws客户端数
-        "access_token": { # access_token 状态
+        "uptime": f"{hours}h {minutes}m {seconds}s",  # 运行时间
+        "clients": len(connected_clients),  # 当前ws客户端数
+        "access_token": {  # access_token 状态
             "valid": await token_manager.get_access_token(only_get_token=True) is not None,
             "remain_seconds": token_remain
         },
-        "database": { # 数据库状态
+        "database": {  # 数据库状态
             "pool_size": POOL_SIZE,
             "queue": pool._queue.qsize() if pool._queue else 0
         },
         "cache": {
-            "message": { # 消息缓存状态
+            "message": {  # 消息缓存状态
                 "seq_cache_size": len(msg_seq_cache),
                 "seq_cache_size_max": SEQ_CACHE_SIZE,
             },
@@ -63,9 +65,28 @@ async def get_health(start_time,connected_clients):
                 "flush_size": await get_pending_counts()
             }
         },
-        "endpoints": { # 接口地址
+        "endpoints": {  # 接口地址
             "websocket": WS_ENDPOINT,
             "webhook": WEBHOOK_ENDPOINT
         },
         "transparent": TRANSPARENT_OPENID
     }
+
+
+TEMP_MAINTAINING_MESSAGE = None
+
+
+async def get_maintaining_message():
+    global TEMP_MAINTAINING_MESSAGE
+    if TEMP_MAINTAINING_MESSAGE:
+        return TEMP_MAINTAINING_MESSAGE
+    return MAINTAINING_MESSAGE if MAINTAINING_MESSAGE else f"{BOT_NAME}暂时没有理你，可能是正在维护...再等等吧"
+
+
+async def set_maintaining_message(message):
+    global TEMP_MAINTAINING_MESSAGE
+    TEMP_MAINTAINING_MESSAGE = message
+
+async def is_user_admin(d):
+    user_id = d.get("author", {}).get("union_openid") if TRANSPARENT_OPENID else await get_or_create_digit_id(d.get("author", {}).get("union_openid"))
+    return user_id in ADMIN_LIST

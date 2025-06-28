@@ -1,4 +1,3 @@
-import json
 import time
 import asyncio
 from typing import Dict, Any, List
@@ -33,7 +32,7 @@ async def message_id_to_open_id(user_digit_id, group_digit_id) -> str:
     return open_id
 
 def convert_openapi_message_to_cq(content: str, attachments: list) -> list:
-    message = [{"type": "text", "data": {"text": content.strip()}}] if content else []
+    message = [{"type": "text", "data": {"text": content}}] if content else []
     for att in attachments:
         if att.get("content_type", "").startswith("image/") and att.get("url"):
             message.append({
@@ -163,7 +162,7 @@ async def parse_open_message_event(current_msg_id,payload: dict):
     if current_msg_id >= message_id: # 消息去重
         return None
     timestamp = int(time.time())
-    content_str = payload.get("content", "")
+    content_str = payload.get("content", "").strip()
     message = convert_openapi_message_to_cq(content_str, payload.get("attachments", []))
     event = {
         "time": timestamp,
