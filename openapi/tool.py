@@ -1,8 +1,10 @@
 import time
 
 from config import log, VERSION, SEQ_CACHE_SIZE, WS_ENDPOINT, WEBHOOK_ENDPOINT, TRANSPARENT_OPENID, SANDBOX_MODE, \
-    MAINTAINING_MESSAGE, BOT_NAME, ADMIN_LIST
-from openapi.database import POOL_SIZE, pool, get_pending_counts, get_or_create_digit_id
+    MAINTAINING_MESSAGE, BOT_NAME, ADMIN_LIST, PORT
+from openapi.database import POOL_SIZE, pool, get_pending_counts, get_or_create_digit_id, get_used_user_today, \
+    get_usage_today
+from openapi.parse_open_event import get_global_message_id
 
 from openapi.token_manage import token_manager
 
@@ -28,12 +30,27 @@ async def check_config():
     log.success("已通过基础配置检查")
     return True
 
+async def show_welcome():
+    log.success("Floodgate Endpoints：")
+    base_url = f"http://127.0.0.1:{PORT}"
+    log.success(f"{base_url}{WEBHOOK_ENDPOINT}")
+    log.success(f"{base_url}{WS_ENDPOINT}")
+    log.success(f"{base_url}/health")
+    log.success(f"{base_url}/avatar")
+    log.success(f"{base_url}/user_stats")
+    log.success(f"{base_url}/upload_image")
+    log.success(f"{base_url}/docs")
+    log.success("Repo: https://github.com/KelsAstell/Floodgate")
+
+
+
 
 async def get_health(start_time, connected_clients):
     from openapi.network import msg_seq_cache
     now = time.time()
     uptime_sec = int(now - start_time)
-    hours, remainder = divmod(uptime_sec, 3600)
+    days, remainder = divmod(uptime_sec, 86400)  # 一天的秒数
+    hours, remainder = divmod(remainder, 3600)
     minutes, seconds = divmod(remainder, 60)
     try:
         token_remain = await token_manager.remaining_seconds()
@@ -69,7 +86,10 @@ async def get_health(start_time, connected_clients):
             "websocket": WS_ENDPOINT,
             "webhook": WEBHOOK_ENDPOINT
         },
-        "transparent": TRANSPARENT_OPENID
+        "transparent": TRANSPARENT_OPENID,
+        "dau":await get_used_user_today(),
+        "dai":await get_usage_today(),
+        "current_msgid": await get_global_message_id()
     }
 
 

@@ -81,6 +81,7 @@ async def call_open_api(method: str, endpoint: str, payload: dict = None):
                     raise HTTPException(status_code=response.status, detail=error_text)
         except aiohttp.ClientError as e:
             log.error(f"网络请求异常: {e}")
+            log.error(f"Payload: {payload}")
             raise HTTPException(status_code=503, detail=f"请求OpenAPI时出现异常: {e}")
 
 
@@ -140,11 +141,14 @@ async def post_guild_image(data):
 
 async def post_floodgate_message(msg, d):
     user_openid = d.get("author", {}).get("union_openid")
-    group_openid = d.get("group_openid")
+    group_openid = d.get("group_openid",d.get("channel_id"))
     if group_openid:
-        msg = "\n" +  msg
-        endpoint = "/v2/groups"
         union_id = group_openid
+        if str(group_openid).isdigit():
+            endpoint = "/channels"
+        else:
+            msg = "\n" +  msg
+            endpoint = "/v2/groups"
     else:
         endpoint = "/v2/users"
         union_id = user_openid
@@ -157,6 +161,8 @@ async def post_im_message(user_id, group_id, message):
     endpoint = "/v2/groups" if group_id else "/v2/users"
     id = group_id if group_id else user_id
     union_id = id if TRANSPARENT_OPENID else await get_union_id_by_digit_id(id)
+    if str(union_id).isdigit():
+        endpoint = "/channels"
     await increment_usage(user_id)
     if message.get("type") == "text":
         payload = {"msg_type": 0, "msg_id": msg_id, "msg_seq": msg_seq}
@@ -251,4 +257,6 @@ async def delete_im_message(user_id, group_id, message_id):
     endpoint = "/v2/groups" if group_id else "/v2/users"
     id = group_id if group_id else user_id
     union_id = id if TRANSPARENT_OPENID else await get_union_id_by_digit_id(id)
+    if str(union_id).isdigit():
+        endpoint = "/channels"
     return await call_open_api("DELETE", f"{endpoint}/{union_id}/messages/{message_id}?hidetip=true", None)

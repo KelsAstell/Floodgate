@@ -1,14 +1,13 @@
+import datetime
 import os
 import aiosqlite
 from aiocache import cached, Cache
 from collections import defaultdict
 from contextlib import asynccontextmanager
 import asyncio
-
-from config import MIGRATE_IDS, log, TRANSPARENT_OPENID
+from config import MIGRATE_IDS, log, TRANSPARENT_OPENID, IDMAP_INITIAL_ID, IDMAP_TTL
 
 DB_NAME = 'storage.db'
-INITIAL_DIGIT_ID = 100000
 POOL_SIZE = 5
 
 # 创建连接池
@@ -42,6 +41,16 @@ pool = ConnectionPool(DB_NAME, POOL_SIZE)
 
 async def init_db():
     if os.path.exists(DB_NAME):
+        # 检查 usage 表是否包含 usage_today 字段，如果没有则添加，适用于250630之前的Floodgate用户，后续会移除
+        async with aiosqlite.connect(DB_NAME) as db:
+            async with db.execute("PRAGMA table_info(usage)") as cursor:
+                columns = await cursor.fetchall()
+                column_names = [col[1] for col in columns]
+            if 'usage_today' not in column_names:
+                log.info("检测到 usage_today 字段缺失，正在添加...")
+                await db.execute("ALTER TABLE usage ADD COLUMN usage_today INTEGER DEFAULT 0")
+                await db.commit()
+                log.success("usage_today 字段已成功添加")
         return
     async with aiosqlite.connect(DB_NAME) as db:
         if not TRANSPARENT_OPENID:
@@ -56,7 +65,8 @@ async def init_db():
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS usage (
                     digit_id INTEGER PRIMARY KEY,
-                    usage_cnt INTEGER DEFAULT 0
+                    usage_cnt INTEGER DEFAULT 0,
+                    usage_today INTEGER DEFAULT 0
                 ) WITHOUT ROWID
             ''')
         else:
@@ -64,7 +74,8 @@ async def init_db():
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS usage (
                     union_id TEXT PRIMARY KEY,
-                    usage_cnt INTEGER DEFAULT 0
+                    usage_cnt INTEGER DEFAULT 0,
+                    usage_today INTEGER DEFAULT 0
                 ) WITHOUT ROWID
             ''')
         await db.commit()
@@ -117,7 +128,7 @@ async def batch_insert_idmap_from_json(ids_path):
 
 
 
-@cached(ttl=3600, cache=Cache.MEMORY)  # 缓存1小时
+@cached(ttl=IDMAP_TTL, cache=Cache.MEMORY)  # 缓存1小时
 async def get_or_create_digit_id(union_id: str) -> int:
     if not union_id:
         return 0
@@ -129,7 +140,7 @@ async def get_or_create_digit_id(union_id: str) -> int:
                 return row[0]
         async with db.execute('SELECT MAX(digit_id) FROM idmap') as cursor:
             row = await cursor.fetchone()
-            max_digit_id = row[0] or INITIAL_DIGIT_ID
+            max_digit_id = row[0] or IDMAP_INITIAL_ID
 
         # 寻找下一个可用的digit_id
         next_digit_id = max_digit_id + 1
@@ -143,7 +154,7 @@ async def get_or_create_digit_id(union_id: str) -> int:
         await db.commit()
         return next_digit_id
 
-@cached(ttl=3600, cache=Cache.MEMORY)
+@cached(ttl=IDMAP_TTL, cache=Cache.MEMORY)
 async def get_union_id_by_digit_id(digit_id: int) -> str:
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute('SELECT union_id FROM idmap WHERE digit_id=?', (digit_id,)) as cursor:
@@ -174,21 +185,44 @@ async def flush_usage_to_db():
             for id, count in to_write.items():
                 if TRANSPARENT_OPENID:
                     await db.execute('''
-                        INSERT INTO usage (union_id, usage_cnt)
-                        VALUES (?, ?)
+                        INSERT INTO usage (union_id, usage_cnt, usage_today)
+                        VALUES (?, ?, ?)
                         ON CONFLICT(union_id) DO UPDATE SET
-                            usage_cnt = usage_cnt + ?
-                    ''', (id, count, count))
+                            usage_cnt = usage_cnt + ?,
+                            usage_today = usage_today + ?
+                    ''', (id, count, count, count, count))
                 else:
                     await db.execute('''
-                        INSERT INTO usage (digit_id, usage_cnt)
-                        VALUES (?, ?)
+                        INSERT INTO usage (digit_id, usage_cnt, usage_today)
+                        VALUES (?, ?, ?)
                         ON CONFLICT(digit_id) DO UPDATE SET
-                            usage_cnt = usage_cnt + ?
-                    ''', (id, count, count))
+                            usage_cnt = usage_cnt + ?,
+                            usage_today = usage_today + ?
+                    ''', (id, count, count, count, count))
             await db.commit()
             log.debug(f"已批量刷新 {len(to_write)} 条 usage 记录到数据库")
 
+
+async def reset_usage_today():
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('UPDATE usage SET usage_today = 0')
+        await db.commit()
+        log.success("已重置今日使用统计数据")
+
+
+@cached(ttl=60, cache=Cache.MEMORY)
+async def get_usage_today() -> int:
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute('SELECT SUM(usage_today) FROM usage') as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0
+
+@cached(ttl=60, cache=Cache.MEMORY)
+async def get_used_user_today() -> int:
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute('SELECT COUNT(*) FROM usage WHERE usage_today > 0') as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0
 
 @cached(ttl=60, cache=Cache.MEMORY)
 async def get_usage_count(id) -> int:

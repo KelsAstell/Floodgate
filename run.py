@@ -16,7 +16,7 @@ from openapi.inner_cmd import parse_floodgate_cmd
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add
 from openapi.token_manage import token_manager
 from openapi.network import post_im_message, delete_im_message, post_guild_image, post_floodgate_message
-from openapi.tool import check_config, get_health, get_maintaining_message
+from openapi.tool import check_config, get_health, get_maintaining_message, show_welcome
 from config import *
 
 
@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     await refresh_access_token()
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(flush_usage_to_db, trigger=IntervalTrigger(minutes=5))
+    scheduler.add_job(flush_usage_to_db, trigger=IntervalTrigger(minutes=10))
     scheduler.add_job(refresh_access_token, trigger=IntervalTrigger(seconds=30))
     scheduler.start()
     end_time = time.time()
@@ -66,7 +66,8 @@ connected_clients_lock = asyncio.Lock()
 @app.post(WEBHOOK_ENDPOINT)
 async def openapi_webhook(request: Request):
     payload = await request.json()
-    # log.debug(f"收到 OpenAPI 请求: {payload}")
+    log.debug(f"收到 OpenAPI 请求: {payload}")
+    log.debug(f"请求头: {request.headers}")
     op = payload.get("op")
     d = payload.get("d")
     if op == 13:
@@ -82,7 +83,7 @@ async def openapi_webhook(request: Request):
         t = payload.get("t")
         if t == "GROUP_ADD_ROBOT":
             ob_data = await parse_group_add(d)
-        elif t in ["GROUP_AT_MESSAGE_CREATE", "C2C_MESSAGE_CREATE"]:
+        elif t in ["GROUP_AT_MESSAGE_CREATE", "C2C_MESSAGE_CREATE","AT_MESSAGE_CREATE"]:
             global CURRENT_MSG_ID
             await parse_floodgate_cmd(start_time,connected_clients,d)
             ob_data = await parse_open_message_event(CURRENT_MSG_ID, d)
@@ -160,6 +161,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json({"status": "failed", "retcode": 10001, "msg": "Unsupported action"})
             except Exception as e:
                 log.error(f"[WebSocket] 处理消息出错: {e}")
+                log.error(f"[Ob11 Request] : {json.loads(raw_data)}")
                 await websocket.send_json(
                     {"status": "failed", "retcode": 10002, "msg": f"Error parsing or processing request: {e}"})
     except Exception as e:
@@ -210,4 +212,5 @@ if __name__ == "__main__":
     import ctypes
     ctypes.windll.kernel32.SetConsoleTitleW(f"Floodgate {VERSION}" if not CUSTOM_TITLE else CUSTOM_TITLE)
     asyncio.run(check_config())
+    asyncio.run(show_welcome())
     uvicorn.run(app, host="0.0.0.0", port=PORT)

@@ -19,6 +19,8 @@ CUSTOM_TITLE = ""                                           # 如果你这里不
 ADD_RETURN = False                                          # 是否在群聊文字消息的第一位加一个\n，这样可能会好看点？DeluxeBOT内部做了相应适配，所以这个选项默认关闭
 SANDBOX_CHANNEL_ID = 0                                      # 沙箱频道ID，使用 /upload_image 接口时，若未填写 channel_id ，则使用该参数
 MAINTAINING_MESSAGE = ""                                    # 维护公告，可不填
+IDMAP_INITIAL_ID = 100000                                   # 起始数字ID，用于创建idmap映射，可填大于0的数字
+IDMAP_TTL = 3600                                            # idmap的缓存时间，默认1小时，缓存时间越长，IDMAP理论性能越好，但同时会增加内存占用
 
 
 #—————————————————特殊配置（给高级用户用的选项）——————————————————#

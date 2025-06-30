@@ -1,9 +1,12 @@
+import re
+
 from openapi.network import post_floodgate_message
 from openapi.tool import is_user_admin, set_maintaining_message, get_health
 
 
 async def parse_floodgate_cmd(start_time,connected_clients,d): #直接传个d进来应该够用
     cmd = d.get("content", "").strip()
+    cmd = re.sub(r'<@![0-9A-Za-z]+>', '', cmd).strip()
     if cmd.startswith("floodgate"):
         data = await get_health(start_time, connected_clients)
         cache = data.get('cache')

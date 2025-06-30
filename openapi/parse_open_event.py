@@ -1,3 +1,4 @@
+import re
 import time
 import asyncio
 from typing import Dict, Any, List
@@ -13,6 +14,10 @@ from openapi.database import get_or_create_digit_id
 cache = Cache(Cache.MEMORY, ttl=300)
 global_message_id = 1
 global_message_id_lock = asyncio.Lock()
+
+async def get_global_message_id() -> int:
+    global global_message_id
+    return global_message_id
 
 async def open_id_to_message_id(open_message_id,user_digit_id, group_digit_id) -> int:
     global global_message_id
@@ -150,7 +155,7 @@ async def parse_group_add(payload: dict):
 
 async def parse_open_message_event(current_msg_id,payload: dict):
     user_open_id = payload.get("author", {}).get("union_openid")
-    group_openid = payload.get("group_openid")
+    group_openid = payload.get("group_openid", payload.get("channel_id"))
     if not TRANSPARENT_OPENID:
         user_id = await get_or_create_digit_id(user_open_id)
         group_id = await get_or_create_digit_id(group_openid) if group_openid else None
@@ -163,6 +168,8 @@ async def parse_open_message_event(current_msg_id,payload: dict):
         return None
     timestamp = int(time.time())
     content_str = payload.get("content", "").strip()
+    if payload.get("channel_id"):
+        content_str = re.sub(r'<@![0-9A-Za-z]+>', '', content_str).strip()
     message = convert_openapi_message_to_cq(content_str, payload.get("attachments", []))
     event = {
         "time": timestamp,
