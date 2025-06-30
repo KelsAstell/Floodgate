@@ -76,6 +76,19 @@ async def call_open_api(method: str, endpoint: str, payload: dict = None):
                     log.debug(f"请求成功: {method} {url}, 响应: {data}")
                     return data
                 else:
+                    log.warning(f"网络请求异常，正在重试")
+                    async with session.request(
+                            method=method,
+                            url=url,
+                            json=payload,
+                            headers=headers,
+                            ssl=False
+                    ) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            log.success(f"重试请求成功")
+                            log.debug(f"重试成功: {method} {url}, 响应: {data}")
+                            return data
                     error_text = await response.text()
                     log.error(f"请求失败: {method} {url}, 状态码: {response.status}, 错误信息: {error_text}")
                     raise HTTPException(status_code=response.status, detail=error_text)
@@ -101,6 +114,8 @@ async def post_guild_image(data):
         image_data = base64.b64decode(base64_image)
     elif file_image:
         try:
+            if file_image.startswith("file:///"):
+                file_image = file_image.lstrip("file:///")
             with open(file_image, "rb") as f:
                 image_data = f.read()
         except (IOError, FileNotFoundError) as e:

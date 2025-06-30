@@ -161,7 +161,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json({"status": "failed", "retcode": 10001, "msg": "Unsupported action"})
             except Exception as e:
                 log.error(f"[WebSocket] 处理消息出错: {e}")
-                log.error(f"[Ob11 Request] : {json.loads(raw_data)}")
+                #log.error(f"[Ob11 Request] : {json.loads(raw_data)}")
                 await websocket.send_json(
                     {"status": "failed", "retcode": 10002, "msg": f"Error parsing or processing request: {e}"})
     except Exception as e:
