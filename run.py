@@ -138,9 +138,9 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             raw_data = await websocket.receive_text()
-            log.debug(f"[WebSocket] 收到客户端消息: {raw_data}")
+            log.debug(f"收到客户端消息: {raw_data}")
+            message = json.loads(raw_data)
             try:
-                message = json.loads(raw_data)
                 if message.get("action") == "send_msg":
                     params = message["params"]
                     msg_list = params.get("message", ["", "", {"type": "text", "data": {"text": "未知异常"}}])
@@ -159,7 +159,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 else:
                     await websocket.send_json({"status": "failed", "retcode": 10001, "msg": "Unsupported action"})
             except Exception as e:
-                log.error(f"[WebSocket] 处理消息出错: {e}")
+                log.error(f"处理消息ID-{message['params'].get('message_id')}出错: {e}")
+                log.error(f"原始消息: {raw_data[:100]}")
                 await websocket.send_json(
                     {"status": "failed", "retcode": 10002, "msg": f"Error parsing or processing request: {e}"})
     except Exception as e:
