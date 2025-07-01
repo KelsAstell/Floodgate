@@ -1,8 +1,10 @@
 import base64
 import hashlib
+import logging
 from io import BytesIO
 
 import aiohttp
+from aiohttp import ClientError
 import asyncio
 from cachetools import TTLCache
 from fastapi import HTTPException
@@ -62,42 +64,40 @@ async def call_open_api(method: str, endpoint: str, payload: dict = None):
     }
 
     async with aiohttp.ClientSession() as session:
-        try:
-            log.debug(f"正在请求: {method} {url}, Headers: {headers}, Body: {payload}")
-            async with session.request(
-                    method=method,
-                    url=url,
-                    json=payload,
-                    headers=headers,
-                    ssl=False
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    log.debug(f"请求成功: {method} {url}, 响应: {data}")
-                    return data
+        retries = 3  # 最大尝试次数，包括首次请求和2次重试
+        for attempt in range(retries):
+            try:
+                log.debug(f"正在请求: {method} {url}, Headers: {headers}, Body: {payload}")
+                async with session.request(
+                        method=method,
+                        url=url,
+                        json=payload,
+                        headers=headers,
+                        ssl=False
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if attempt > 0:
+                            log.success(f"第 {attempt + 1} 次重试成功")
+                        log.debug(f"请求成功: {method} {url}, 响应: {data}")
+                        return data
+                    else:
+                        error_text = await response.text()
+                        log.error(f"请求失败: {method} {url}, 状态码: {response.status}, 错误信息: {error_text}")
+                        log.warning(f"payload:{payload[:100]}")
+                        if attempt < retries - 1:
+                            log.warning(f"第 {attempt + 1} 次重试...")
+                            continue
+                        else:
+                            raise HTTPException(status_code=response.status, detail=error_text)
+            except (ClientError, TimeoutError) as e:
+                log.warning(f"网络请求异常: {e}")
+                await asyncio.sleep(1)
+                if attempt < retries - 1:
+                    log.warning(f"第 {attempt + 1} 次重试...")
+                    continue
                 else:
-                    log.warning(f"网络请求异常，正在重试")
-                    async with session.request(
-                            method=method,
-                            url=url,
-                            json=payload,
-                            headers=headers,
-                            ssl=False
-                    ) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            log.success(f"重试请求成功")
-                            log.debug(f"重试成功: {method} {url}, 响应: {data}")
-                            return data
-                    error_text = await response.text()
-                    log.error(f"请求失败: {method} {url}, 状态码: {response.status}, 错误信息: {error_text}")
-                    raise HTTPException(status_code=response.status, detail=error_text)
-        except aiohttp.ClientError as e:
-            log.error(f"网络请求异常: {e}")
-            log.error(f"Payload: {payload}")
-            raise HTTPException(status_code=503, detail=f"请求OpenAPI时出现异常: {e}")
-
-
+                    raise HTTPException(status_code=503, detail=f"请求OpenAPI时出现异常: {e}")
 async def post_guild_image(data):
     base64_image = data.get("base64_image", "")
     file_image = data.get("file_image", "")
@@ -113,10 +113,9 @@ async def post_guild_image(data):
     if base64_image:
         image_data = base64.b64decode(base64_image)
     elif file_image:
+        file_path = file_image.replace("file:///", "")
         try:
-            if file_image.startswith("file:///"):
-                file_image = file_image.lstrip("file:///")
-            with open(file_image, "rb") as f:
+            with open(file_path, "rb") as f:
                 image_data = f.read()
         except (IOError, FileNotFoundError) as e:
             log.error(f"文件读取失败: {e}")
@@ -156,14 +155,11 @@ async def post_guild_image(data):
 
 async def post_floodgate_message(msg, d):
     user_openid = d.get("author", {}).get("union_openid")
-    group_openid = d.get("group_openid",d.get("channel_id"))
+    group_openid = d.get("group_openid")
     if group_openid:
+        msg = "\n" +  msg
+        endpoint = "/v2/groups"
         union_id = group_openid
-        if str(group_openid).isdigit():
-            endpoint = "/channels"
-        else:
-            msg = "\n" +  msg
-            endpoint = "/v2/groups"
     else:
         endpoint = "/v2/users"
         union_id = user_openid
@@ -176,8 +172,6 @@ async def post_im_message(user_id, group_id, message):
     endpoint = "/v2/groups" if group_id else "/v2/users"
     id = group_id if group_id else user_id
     union_id = id if TRANSPARENT_OPENID else await get_union_id_by_digit_id(id)
-    if str(union_id).isdigit():
-        endpoint = "/channels"
     await increment_usage(user_id)
     if message.get("type") == "text":
         payload = {"msg_type": 0, "msg_id": msg_id, "msg_seq": msg_seq}
@@ -195,18 +189,18 @@ async def post_im_message(user_id, group_id, message):
                 text += segment["text"]
             elif segment["type"] == "image":
                 if segment["url"].startswith("base64://"):
-                    payload = {"file_type": 1, "file_data": segment["url"][9:]}
+                    payload = {"file_type": 1, "file_data": segment["url"][9:], "srv_send_msg":False}
                     ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
                     image_info_list.append(ret["file_info"])
                 elif segment["url"].startswith("http://") or segment["url"].startswith("https://"):
-                    payload = {"event_id": msg_id, "file_type": 1, "url": segment["url"]}
+                    payload = {"event_id": msg_id, "file_type": 1, "url": segment["url"], "srv_send_msg":False}
                     ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
                     image_info_list.append(ret["file_info"])
                 elif segment["url"].startswith("file:///"):
                     file_path = segment["url"].lstrip("file:///")
                     with open(file_path, "rb") as image_file:
                         encoded_str = base64.b64encode(image_file.read()).decode("utf-8")
-                        payload = {"file_type": 1, "file_data": encoded_str}
+                        payload = {"file_type": 1, "file_data": encoded_str, "srv_send_msg":False}
                         ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
                         image_info_list.append(ret["file_info"])
         if len(image_info_list) > 1:
@@ -272,6 +266,4 @@ async def delete_im_message(user_id, group_id, message_id):
     endpoint = "/v2/groups" if group_id else "/v2/users"
     id = group_id if group_id else user_id
     union_id = id if TRANSPARENT_OPENID else await get_union_id_by_digit_id(id)
-    if str(union_id).isdigit():
-        endpoint = "/channels"
     return await call_open_api("DELETE", f"{endpoint}/{union_id}/messages/{message_id}?hidetip=true", None)
