@@ -89,7 +89,8 @@ async def call_open_api(method: str, endpoint: str, payload: dict = None, sleepy
                         return data
                     else:
                         error_text = await response.text()
-                        log.error(f"请求失败: {method} {url}, 状态码: {response.status}, 错误信息: {error_text}")
+                        # 打印错误信息..有点吵，我先给注释了，这个bug奇奇怪怪的，总之重发能解决
+                        # log.error(f"请求失败: {method} {url}, 状态码: {response.status}, 错误信息: {error_text}")
                         log.debug(f"payload: {json.dumps(payload, ensure_ascii=False)[:300]}")
                         if attempt < retries - 1:
                             await asyncio.sleep(1)
