@@ -70,7 +70,7 @@ ChatGPT 也可能会犯错。请核查重要信息。
 * ✅ 图床接口，QPS 0.6~1
 * ✅ 支持多类型消息转发（文本、图片(base64/本地文件/远程url)、Ark 卡片、Markdown、表情(文本描述)、silk 语音(base64/本地文件/远程url)等）
 * ✅ 基于MIT协议分发，高可配置
-* ✅ 兼容 Gensokyo 迁移(迁移数字id映射，不支持idmap_pro，您可以自行修改数据库的创建代码，欢迎pr)
+* ✅ 兼容 Gensokyo 迁移[教程](https://github.com/KelsAstell/Floodgate/tree/main/docs/export_bbolt/Export_Bbolt.md)(迁移数字id映射，不支持idmap_pro，您可以自行修改数据库的创建代码，欢迎pr)
 * ✅ 秒速启动，无需等待
 * ✅ 支持兼容模式(数字ID)或透传模式Alpha(⚠️OpenID透传需Bot自行适配哦)！
 
@@ -264,3 +264,4 @@ Copyright (c) 2025 KelsAstell
 
 ## 联系作者
 * [GitHub](https://github.com/KelsAstell)
+* [群聊] 478842113
