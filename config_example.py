@@ -21,6 +21,7 @@ SANDBOX_CHANNEL_ID = 0                                      # 沙箱频道ID，�
 MAINTAINING_MESSAGE = ""                                    # 维护公告，可不填
 IDMAP_INITIAL_ID = 100000                                   # 起始数字ID，用于创建idmap映射，可填大于0的数字
 IDMAP_TTL = 3600                                            # idmap的缓存时间，默认1小时，缓存时间越长，IDMAP理论性能越好，但同时会增加内存占用
+NAP_MILLSECONDS = 300                                      # 发送前等待的时间，小助手给的说法说是降速，要不然就会出现诡异的调用不支持(404)
 
 
 #—————————————————特殊配置（给高级用户用的选项）——————————————————#
@@ -29,6 +30,11 @@ IDMAP_TTL = 3600                                            # idmap的缓存时�
 MIGRATE_IDS = False                                         # 是否迁移 Gensokyo 的idmap数据，默认为False，注意，只支持最早期的数字id，不支持idmap_pro
 TRANSPARENT_OPENID = False                                  # OpenID 透传，好东西...但是除非你知道你在干什么，否则不要启用这个选项，
                                                             # 需要你的 OneBot 实现自行适配string格式的ID，如果你开了这个选项，那你用的一定不是原生OneBot
+RATE_LIMIT = True                                           # 是否开启中间件级别限速
+MAX_MESSAGES = 6                                            # 时间窗口内消息数
+TIME_WINDOW_SECONDS = 10                                    # 时间窗口时长，单位为秒
+BLOCK_DURATION_SECONDS = 60                                 # 封禁时长，单位为秒
+
 
 #—————————————————CONSTANT(常量，正常来说不需要动)——————————————#
 # 女士/先生/福瑞/无机生命/阳光哥布林们，我的意思是，不要动，除非艾斯说了可以动，就这么简单

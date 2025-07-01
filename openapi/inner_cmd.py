@@ -11,10 +11,11 @@ async def parse_floodgate_cmd(start_time,connected_clients,d): #直接传个d进
         data = await get_health(start_time, connected_clients)
         cache = data.get('cache')
         msg = (
-                f"Floodgate：{'已连接' if data['clients'] > 0 else '未连接'}机器人({data['clients']}个)\n环境：{data['env']}\n版本号：{data['version']}\n"
+                f"Floodgate：{'✅已连接' if data['clients'] > 0 else '❌未连接'}({data['clients']}个实例)\n环境：{data['env']}\n版本号：{data['version']}\n"
                 f"运行时长：{data['uptime']}\nToken有效期：{data['access_token']['remain_seconds']}秒\n"
+                f"消息补发：成功({data['send_failed'].get('success', 0)}) | 失败({data['send_failed'].get('failed', 0)})\n"
                 f"内存缓存利用率：{100 * cache['message']['seq_cache_size'] / cache['message']['seq_cache_size_max']:.2f}%\n"
-                f"待提交的统计数据：{cache['usage']['flush_size']}")
+                f"待提交的统计：{cache['usage']['flush_size']}")
         return await post_floodgate_message(msg, d)
     elif cmd.startswith("offline"):
         if await is_user_admin(d):

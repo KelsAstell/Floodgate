@@ -1,9 +1,9 @@
 import time
-
 from config import log, VERSION, SEQ_CACHE_SIZE, WS_ENDPOINT, WEBHOOK_ENDPOINT, TRANSPARENT_OPENID, SANDBOX_MODE, \
-    MAINTAINING_MESSAGE, BOT_NAME, ADMIN_LIST, PORT
+    MAINTAINING_MESSAGE, BOT_NAME, ADMIN_LIST, PORT, TIME_WINDOW_SECONDS, MAX_MESSAGES, BLOCK_DURATION_SECONDS
 from openapi.database import POOL_SIZE, pool, get_pending_counts, get_or_create_digit_id, get_used_user_today, \
     get_usage_today
+from openapi.network import get_send_failed_count, post_floodgate_message
 from openapi.parse_open_event import get_global_message_id
 
 from openapi.token_manage import token_manager
@@ -49,9 +49,15 @@ async def get_health(start_time, connected_clients):
     from openapi.network import msg_seq_cache
     now = time.time()
     uptime_sec = int(now - start_time)
-    days, remainder = divmod(uptime_sec, 86400)  # 一天的秒数
-    hours, remainder = divmod(remainder, 3600)
-    minutes, seconds = divmod(remainder, 60)
+    if uptime_sec >= 86400:
+        days, remainder = divmod(uptime_sec, 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        uptime_str = f"{days}d {hours}h {minutes}m {seconds}s"
+    else:
+        hours, remainder = divmod(uptime_sec, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        uptime_str = f"{hours}h {minutes}m {seconds}s"
     try:
         token_remain = await token_manager.remaining_seconds()
     except Exception as e:
@@ -63,7 +69,7 @@ async def get_health(start_time, connected_clients):
         "env": 'sandbox' if SANDBOX_MODE else 'production',
         "version": VERSION,  # 版本号
         "repo": "https://github.com/KelsAstell/Floodgate",
-        "uptime": f"{hours}h {minutes}m {seconds}s",  # 运行时间
+        "uptime": uptime_str,  # 运行时间
         "clients": len(connected_clients),  # 当前ws客户端数
         "access_token": {  # access_token 状态
             "valid": await token_manager.get_access_token(only_get_token=True) is not None,
@@ -89,7 +95,8 @@ async def get_health(start_time, connected_clients):
         "transparent": TRANSPARENT_OPENID,
         "dau":await get_used_user_today(),
         "dai":await get_usage_today(),
-        "current_msgid": await get_global_message_id()
+        "current_msgid": await get_global_message_id(),
+        "send_failed": await get_send_failed_count()
     }
 
 
@@ -110,3 +117,32 @@ async def set_maintaining_message(message):
 async def is_user_admin(d):
     user_id = d.get("author", {}).get("union_openid") if TRANSPARENT_OPENID else await get_or_create_digit_id(d.get("author", {}).get("union_openid"))
     return user_id in ADMIN_LIST
+
+from collections import defaultdict, deque
+from datetime import datetime, timedelta
+
+user_message_history = defaultdict(deque)
+temp_ban_until = {}  # uid -> 解封时间
+
+async def rate_limit(d):
+    uid = d.get("author", {}).get("union_openid")
+    # 自己人，管理员不限速
+    if await is_user_admin(d):
+        return False
+    now = datetime.now()
+    # 检查是否被临时封禁
+    if uid in temp_ban_until and now < temp_ban_until[uid]:
+        log.warning(f"{uid}({await get_or_create_digit_id(uid)})发送频率过高，临时封禁至 {temp_ban_until[uid]}")
+        await post_floodgate_message(f"🧊你发送得太快啦，请 {int((temp_ban_until[uid] - now).total_seconds())} 秒后再试~", d)
+        return True
+    elif uid in temp_ban_until:
+        del temp_ban_until[uid]
+    msg_times = user_message_history[uid]
+    msg_times.append(now)
+    while msg_times and (now - msg_times[0]).total_seconds() > TIME_WINDOW_SECONDS:
+        msg_times.popleft()
+    if len(msg_times) > MAX_MESSAGES:
+        temp_ban_until[uid] = now + timedelta(seconds=BLOCK_DURATION_SECONDS)
+        await post_floodgate_message(f"🧊你发送得太快啦，请 {BLOCK_DURATION_SECONDS} 秒后再试uwu~", d)
+        return True
+    return False
