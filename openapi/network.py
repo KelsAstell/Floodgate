@@ -232,10 +232,8 @@ async def post_im_message(user_id, group_id, message):
             payload = {"content": text, "msg_type": 7, "media": {"file_info": image_info_list[-1]}, "msg_id": msg_id,
                        "msg_seq": await get_next_msg_seq(msg_id)}
             sleepy = True
-        if group_id and ADD_RETURN and not message["text"].startswith("\n"):
-            payload["content"] = "\n" + message["text"]
-        else:
-            payload["content"] = message["text"]
+        if group_id and ADD_RETURN and not payload["content"].startswith("\n"):
+            payload["content"] = "\n" + payload["content"]
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload, sleepy)
     elif message.get("type") == "ark":
         payload = {"ark": message["ark"], "msg_type": 3, "msg_id": msg_id, "msg_seq": msg_seq}
