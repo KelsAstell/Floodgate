@@ -194,7 +194,7 @@ async def user_stats(request: UserStatsRequest):
     return {"usage_count": usage_count}
 
 
-@app.get("/health")
+@app.get(f"{WEBHOOK_ENDPOINT}/health")
 async def health_check():
     return await get_health(start_time,connected_clients)
 
