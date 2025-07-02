@@ -40,7 +40,7 @@ BLOCK_DURATION_SECONDS = 60                                 # 封禁时长，单
 # 女士/先生/福瑞/无机生命/阳光哥布林们，我的意思是，不要动，除非艾斯说了可以动，就这么简单
 QQ_API_BASE = "https://api.sgroup.qq.com"                   # 正式环境API地址，不需要改
 QQ_API_BASE_SANDBOX = "https://sandbox.api.sgroup.qq.com"   # 沙箱环境API地址，不需要改
-VERSION = "0.0.1-Beta"                                      # 版本号，小猫，你可以改版本号
+VERSION = "0.0.1"                                      # 版本号，小猫，你可以改版本号
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | <level>{level: <8}</level> | <level>{message}</level>"
 from loguru import logger as log                            # 不要删，会让 Floodgate 鼠掉，你可以逝一下
 SEQ_CACHE_SIZE = 300

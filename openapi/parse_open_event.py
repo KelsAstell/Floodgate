@@ -1,40 +1,51 @@
 import re
 import time
-import asyncio
 from typing import Dict, Any, List
-
-from aiocache import Cache
 
 from config import BOT_APPID, TRANSPARENT_OPENID
 from openapi.constant import face_id_dict
 from openapi.database import get_or_create_digit_id
+from anyio import Lock
+from aiocache import Cache
 
-
-# 使用内存缓存实现双向映射，有效期为5分钟（300秒）
+# 创建缓存（内存缓存 + 5 分钟 TTL）
 cache = Cache(Cache.MEMORY, ttl=300)
-global_message_id = 1
-global_message_id_lock = asyncio.Lock()
+
+# 消息 ID 生成器类
+class MessageIDGenerator:
+    def __init__(self, start: int = 1):
+        self._lock = Lock()
+        self._current_id = start
+
+    async def next(self) -> int:
+        async with self._lock:
+            message_id = self._current_id
+            self._current_id += 1
+            return message_id
+
+# 实例化全局 ID 分配器
+global_id_generator = MessageIDGenerator()
+
 
 async def get_global_message_id() -> int:
-    global global_message_id
-    return global_message_id
+    return global_id_generator._current_id
 
-async def open_id_to_message_id(open_message_id,user_digit_id, group_digit_id) -> int:
-    global global_message_id
-    existing_id = await cache.get(f"open_to_num:{open_message_id}")
+# open_id → message_id 映射，带生成
+async def open_id_to_message_id(open_message_id: str, user_digit_id: int, group_digit_id: int) -> int:
+    cache_key = f"open_to_num:{open_message_id}"
+    existing_id = await cache.get(cache_key)
     if existing_id is not None:
         return existing_id
 
-    async with global_message_id_lock:
-        current_id = global_message_id
-        global_message_id += 1
-        await cache.set(f"open_to_num:{open_message_id}", current_id)
-        await cache.set(f"num_to_open:{user_digit_id}|{group_digit_id}", open_message_id)
-        return current_id
+    # 使用线程安全的 ID 生成器，警钟敲烂
+    current_id = await global_id_generator.next()
+    await cache.set(cache_key, current_id)
+    await cache.set(f"num_to_open:{user_digit_id}|{group_digit_id}", open_message_id)
+    return current_id
 
-async def message_id_to_open_id(user_digit_id, group_digit_id) -> str:
-    open_id = await cache.get(f"num_to_open:{user_digit_id}|{group_digit_id}")
-    return open_id
+# message_id → open_id 映射
+async def message_id_to_open_id(user_digit_id: int, group_digit_id: int) -> str:
+    return await cache.get(f"num_to_open:{user_digit_id}|{group_digit_id}")
 
 def convert_openapi_message_to_cq(content: str, attachments: list) -> list:
     message = [{"type": "text", "data": {"text": content}}] if content else []
