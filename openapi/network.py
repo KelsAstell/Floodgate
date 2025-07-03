@@ -234,7 +234,7 @@ async def post_im_message(user_id, group_id, message):
             sleepy = True
         if group_id and ADD_RETURN and not payload["content"].startswith("\n"):
             if payload["content"]:
-                payload["content"] += "\n"
+                payload["content"] = "\n" + payload["content"]
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload, sleepy)
     elif message.get("type") == "ark":
         payload = {"ark": message["ark"], "msg_type": 3, "msg_id": msg_id, "msg_seq": msg_seq}
