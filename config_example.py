@@ -43,4 +43,6 @@ QQ_API_BASE_SANDBOX = "https://sandbox.api.sgroup.qq.com"   # 沙箱环境API地
 VERSION = "0.0.1"                                      # 版本号，小猫，你可以改版本号
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | <level>{level: <8}</level> | <level>{message}</level>"
 from loguru import logger as log                            # 不要删，会让 Floodgate 鼠掉，你可以逝一下
-SEQ_CACHE_SIZE = 300
+SEQ_CACHE_SIZE = 300                                        # 消息队列缓存大小，如果你的BOT涉及到一个事件多次回复，可能需要调的很大，如果没有这样的需求，300足矣
+STAT_LOG = "logs/usage_summary.json"                        # 保存你的DAU和DAI记录
+STAT_LOG_MAX_DAYS = 7                                       # DAU和DAI的最长保存期限，单位为天

@@ -1,11 +1,12 @@
 import datetime
+import json
 import os
 import aiosqlite
 from aiocache import cached, Cache
 from collections import defaultdict
 from contextlib import asynccontextmanager
 import asyncio
-from config import MIGRATE_IDS, log, TRANSPARENT_OPENID, IDMAP_INITIAL_ID, IDMAP_TTL
+from config import MIGRATE_IDS, log, TRANSPARENT_OPENID, IDMAP_INITIAL_ID, IDMAP_TTL, STAT_LOG,STAT_LOG_MAX_DAYS
 
 DB_NAME = 'storage.db'
 POOL_SIZE = 5
@@ -205,24 +206,46 @@ async def flush_usage_to_db():
 
 async def reset_usage_today():
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute('UPDATE usage SET usage_today = 0')
-        await db.commit()
-        log.success("已重置今日使用统计数据")
+        cursor = await db.execute('SELECT COUNT(*), SUM(usage_today) FROM usage WHERE usage_today > 0')
+        row = await cursor.fetchone()
+        used_count = row[0] or 0
+        total_calls = row[1] or 0  # 避免 None
+    today = datetime.date.today()
+    yesterday = today - datetime.timedelta(days=1)
+    if os.path.exists(STAT_LOG):
+        with open(STAT_LOG, 'r', encoding='utf-8') as f:
+            old_data = json.load(f)
+    else:
+        old_data = {}
+    new_entry = {
+        "date": str(yesterday),
+        "users": used_count,
+        "calls": total_calls
+    }
+    data = {}
+    keys = sorted([int(k) for k in old_data.keys() if k.isdigit()])
+    for k in keys:
+        new_key = k - 1
+        if new_key < 1:
+            continue
+        data[str(new_key)] = old_data[str(k)]
+    data[str(STAT_LOG_MAX_DAYS)] = new_entry
+    with open(STAT_LOG, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    log.success(f"已重置今日使用统计数据（保存最近 {STAT_LOG_MAX_DAYS} 天")
 
 
 @cached(ttl=60, cache=Cache.MEMORY)
-async def get_usage_today() -> int:
+async def get_dau_today() -> dict:
     async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute('SELECT SUM(usage_today) FROM usage') as cursor:
+        async with db.execute('SELECT COUNT(*), SUM(usage_today) FROM usage WHERE usage_today > 0') as cursor:
             row = await cursor.fetchone()
-            return row[0] if row else 0
-
-@cached(ttl=60, cache=Cache.MEMORY)
-async def get_used_user_today() -> int:
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute('SELECT COUNT(*) FROM usage WHERE usage_today > 0') as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+            dau = row[0] if row else 0
+            dai = row[1] if row and row[1] is not None else 0
+            return {
+                "dau": dau,  # Daily Active Users
+                "dai": dai   # Daily Active Invocations (calls)
+            }
 
 @cached(ttl=60, cache=Cache.MEMORY)
 async def get_usage_count(id) -> int:

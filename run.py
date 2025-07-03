@@ -213,6 +213,7 @@ CURRENT_MSG_ID = 0
 if __name__ == "__main__":
     log.remove()
     log.add(sys.stdout, level=LOG_LEVEL, format=LOG_FORMAT)
+    log.add("warnings_and_errors.log", level="WARNING", rotation="10 MB", retention="7 days", encoding="utf-8")
     import ctypes
     ctypes.windll.kernel32.SetConsoleTitleW(f"Floodgate {VERSION}" if not CUSTOM_TITLE else CUSTOM_TITLE)
     asyncio.run(check_config())

@@ -1,8 +1,8 @@
+import json
+import os
 import time
-from config import log, VERSION, SEQ_CACHE_SIZE, WS_ENDPOINT, WEBHOOK_ENDPOINT, TRANSPARENT_OPENID, SANDBOX_MODE, \
-    MAINTAINING_MESSAGE, BOT_NAME, ADMIN_LIST, PORT, TIME_WINDOW_SECONDS, MAX_MESSAGES, BLOCK_DURATION_SECONDS
-from openapi.database import POOL_SIZE, pool, get_pending_counts, get_or_create_digit_id, get_used_user_today, \
-    get_usage_today
+from config import *
+from openapi.database import POOL_SIZE, pool, get_pending_counts, get_or_create_digit_id, get_dau_today
 from openapi.network import get_send_failed_count, post_floodgate_message
 from openapi.parse_open_event import get_global_message_id
 
@@ -13,6 +13,17 @@ async def check_config():
     from config import BOT_SECRET, BOT_APPID, SANDBOX_CHANNEL_ID
     errors = []
     warnings = []
+    os.makedirs("logs", exist_ok=True)
+    log.add(
+        os.path.join("logs", "{time:YYYY-MM-DD}.log"),
+        level="WARNING",
+        rotation="00:00",            # 每天 00:00 分割
+        retention="7 days",          # 保留 7 天
+        encoding="utf-8",
+        enqueue=True,                # 多线程/多进程安全（推荐开启）
+        backtrace=True,              # 错误日志中显示完整堆栈
+        diagnose=True                # 显示变量值
+    )
     if not isinstance(BOT_SECRET, str) or len(BOT_SECRET.strip()) == 0:
         errors.append("BOT_SECRET 未填写")
     if not isinstance(BOT_APPID, int) or BOT_APPID <= 0:
@@ -35,7 +46,7 @@ async def show_welcome():
     base_url = f"http://127.0.0.1:{PORT}"
     log.success(f"{base_url}{WEBHOOK_ENDPOINT}")
     log.success(f"{base_url}{WS_ENDPOINT}")
-    log.success(f"{base_url}/health")
+    log.success(f"{base_url}{WEBHOOK_ENDPOINT}/health")
     log.success(f"{base_url}/avatar")
     log.success(f"{base_url}/user_stats")
     log.success(f"{base_url}/upload_image")
@@ -63,7 +74,7 @@ async def get_health(start_time, connected_clients):
     except Exception as e:
         log.warning(f"Token 剩余时间计算失败: {e}")
         token_remain = None
-
+    dau_dict = await get_dau_today()
     return {
         "status": "ok",
         "env": 'sandbox' if SANDBOX_MODE else 'production',
@@ -93,8 +104,8 @@ async def get_health(start_time, connected_clients):
             "webhook": WEBHOOK_ENDPOINT
         },
         "transparent": TRANSPARENT_OPENID,
-        "dau":await get_used_user_today(),
-        "dai":await get_usage_today(),
+        "dau":dau_dict.get("dau",0),
+        "dai":dau_dict.get("dai",0),
         "current_msgid": await get_global_message_id(),
         "send_failed": await get_send_failed_count()
     }
@@ -104,10 +115,7 @@ TEMP_MAINTAINING_MESSAGE = None
 
 
 async def get_maintaining_message():
-    global TEMP_MAINTAINING_MESSAGE
-    if TEMP_MAINTAINING_MESSAGE:
-        return TEMP_MAINTAINING_MESSAGE
-    return MAINTAINING_MESSAGE if MAINTAINING_MESSAGE else f"{BOT_NAME}暂时没有理你，可能是正在维护...再等等吧"
+    return TEMP_MAINTAINING_MESSAGE or MAINTAINING_MESSAGE
 
 
 async def set_maintaining_message(message):
@@ -119,7 +127,7 @@ async def is_user_admin(d):
     return user_id in ADMIN_LIST
 
 from collections import defaultdict, deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 user_message_history = defaultdict(deque)
 temp_ban_until = {}  # uid -> 解封时间
@@ -133,7 +141,7 @@ async def rate_limit(d):
     # 检查是否被临时封禁
     if uid in temp_ban_until and now < temp_ban_until[uid]:
         log.warning(f"{uid}({await get_or_create_digit_id(uid)})发送频率过高，临时封禁至 {temp_ban_until[uid]}")
-        await post_floodgate_message(f"🧊你发送得太快啦，请 {int((temp_ban_until[uid] - now).total_seconds())} 秒后再试~", d)
+        await post_floodgate_message(f"🧊你发送得太快啦，请 {int((temp_ban_until[uid] - now).total_seconds())} 秒后再试uwu~", d)
         return True
     elif uid in temp_ban_until:
         del temp_ban_until[uid]
@@ -146,3 +154,26 @@ async def rate_limit(d):
         await post_floodgate_message(f"🧊你发送得太快啦，请 {BLOCK_DURATION_SECONDS} 秒后再试uwu~", d)
         return True
     return False
+
+async def get_dau_history():
+    if not os.path.exists(STAT_LOG):
+        return "无历史统计数据"
+
+    # 读取 JSON 文件
+    with open(STAT_LOG, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    today = date.today()
+    lines = []
+    # 按顺序遍历所有天数（最旧到最新）
+    for i in range(1, STAT_LOG_MAX_DAYS + 1):
+        if str(i) not in data:
+            continue
+        entry = data[str(i)]
+        entry_date = datetime.strptime(entry["date"], "%Y-%m-%d").date()
+        days_ago = (today - entry_date).days
+        label = f"{days_ago}天前" if days_ago > 0 else "今天"
+        lines.append(
+            f"{entry_date.month}月{entry_date.day}日({label})：人数{entry['users']}，调用次数{entry['calls']}"
+        )
+    return "\n".join(lines)

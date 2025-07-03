@@ -1,13 +1,18 @@
 import re
 
+from config import BOT_NAME
+from openapi.database import get_dau_today
 from openapi.network import post_floodgate_message
-from openapi.tool import is_user_admin, set_maintaining_message, get_health
+from openapi.tool import is_user_admin, set_maintaining_message, get_health, get_dau_history
 
 
 async def parse_floodgate_cmd(start_time,connected_clients,d): #直接传个d进来应该够用
     cmd = d.get("content", "").strip()
     cmd = re.sub(r'<@![0-9A-Za-z]+>', '', cmd).strip()
-    if cmd.startswith("floodgate"):
+    if not cmd.startswith("~"):
+        return
+    cmd = cmd[1:]
+    if cmd.startswith("fg"):
         data = await get_health(start_time, connected_clients)
         cache = data.get('cache')
         msg = (
@@ -26,3 +31,8 @@ async def parse_floodgate_cmd(start_time,connected_clients,d): #直接传个d进
                 maintenance_message = "当前暂时没有具体维护信息"
             await set_maintaining_message(maintenance_message)
             return await post_floodgate_message(f"成功将维护信息设置为：{maintenance_message}", d)
+    elif cmd.startswith("dau"):
+        if await is_user_admin(d):
+            dau_data = await get_dau_today()
+            history_dau_msg = await get_dau_history()
+            return await post_floodgate_message(f"---{BOT_NAME}数据统计---\n今日活跃用户数：{dau_data.get('dau', 0)}\n今日总调用数：{dau_data.get('dai', 0)}\n{history_dau_msg}", d)
