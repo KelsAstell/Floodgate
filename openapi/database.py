@@ -6,7 +6,8 @@ from aiocache import cached, Cache
 from collections import defaultdict
 from contextlib import asynccontextmanager
 import asyncio
-from config import MIGRATE_IDS, log, TRANSPARENT_OPENID, IDMAP_INITIAL_ID, IDMAP_TTL, STAT_LOG,STAT_LOG_MAX_DAYS
+from config import MIGRATE_IDS, log, TRANSPARENT_OPENID, IDMAP_INITIAL_ID, IDMAP_TTL, STAT_LOG, STAT_LOG_MAX_DAYS, \
+    ACHIEVEMENT_PERSIST
 
 DB_NAME = 'storage.db'
 POOL_SIZE = 5
@@ -42,18 +43,23 @@ pool = ConnectionPool(DB_NAME, POOL_SIZE)
 
 async def init_db():
     if os.path.exists(DB_NAME):
-        # 检查 usage 表是否包含 usage_today 字段，如果没有则添加，适用于250630之前的Floodgate用户，后续会移除
-        async with aiosqlite.connect(DB_NAME) as db:
-            async with db.execute("PRAGMA table_info(usage)") as cursor:
-                columns = await cursor.fetchall()
-                column_names = [col[1] for col in columns]
-            if 'usage_today' not in column_names:
-                log.info("检测到 usage_today 字段缺失，正在添加...")
-                await db.execute("ALTER TABLE usage ADD COLUMN usage_today INTEGER DEFAULT 0")
-                await db.commit()
-                log.success("usage_today 字段已成功添加")
+        if ACHIEVEMENT_PERSIST:
+            async with aiosqlite.connect(DB_NAME) as db:
+                await db.execute('''
+                CREATE TABLE IF NOT EXISTS achievement (
+                    id TEXT PRIMARY KEY,
+                    achievement TEXT
+                )
+            ''')
         return
     async with aiosqlite.connect(DB_NAME) as db:
+        if ACHIEVEMENT_PERSIST:
+            await db.execute('''
+            CREATE TABLE IF NOT EXISTS achievement (
+                id TEXT PRIMARY KEY,
+                achievement TEXT
+            )
+        ''')
         if not TRANSPARENT_OPENID:
             await db.execute('''
             CREATE TABLE IF NOT EXISTS idmap (
@@ -90,6 +96,57 @@ async def init_db():
             return
         await batch_insert_idmap_from_json(ids_path)
         log.success("导入idmap映射表成功")
+
+
+async def add_achievement(user_id: str, achievement_id: int) -> bool:
+    if not ACHIEVEMENT_PERSIST:
+        return True
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            'SELECT achievement FROM achievement WHERE id = ?', (user_id,))
+        row = await cursor.fetchone()
+        if row is None:
+            achievement_list = [achievement_id]
+            await db.execute(
+                'INSERT INTO achievement (id, achievement) VALUES (?, ?)',
+                (user_id, json.dumps(achievement_list))
+            )
+            await db.commit()
+            return True
+        try:
+            achievement_list = json.loads(row[0]) if row[0] else []
+            if not isinstance(achievement_list, list):
+                achievement_list = []
+        except json.JSONDecodeError:
+            achievement_list = []
+        #achievement_list = [int(a) for a in achievement_list]
+        if achievement_id in achievement_list:
+            return False
+        achievement_list.append(achievement_id)
+        await db.execute(
+            'UPDATE achievement SET achievement = ? WHERE id = ?',
+            (json.dumps(achievement_list), user_id)
+        )
+        await db.commit()
+        return True
+
+
+async def get_achievement_list(user_id: str):
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            'SELECT achievement FROM achievement WHERE id = ?', (user_id,)
+        )
+        row = await cursor.fetchone()
+
+        if row is None:
+            return []
+        try:
+            achievement_list = json.loads(row[0]) if row[0] else []
+            if not isinstance(achievement_list, list):
+                return []
+            return [int(a) for a in achievement_list]
+        except json.JSONDecodeError:
+            return []
 
 async def batch_insert_idmap_from_json(ids_path):
     import base64

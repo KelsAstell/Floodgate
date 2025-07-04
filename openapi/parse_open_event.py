@@ -88,13 +88,13 @@ def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, A
                     "type": "image",
                     "url": url
                 })
-        elif seg_type == "face":
-            face_id = data.get("face_id")
-            if face_id:
-                rich_segments.append({
-                    "type": "text",
-                    "text": f"[表情：{face_id_dict.get(face_id)}]"
-                })
+        # elif seg_type == "face": # 我不用，用的话可以自己取消注释
+        #     face_id = data.get("face_id")
+        #     if face_id:
+        #         rich_segments.append({
+        #             "type": "text",
+        #             "text": f"[表情：{face_id_dict.get(face_id)}]"
+        #         })
         elif seg_type == "ark": # 乖，咱们单发ark，别整花活
             # Onebot端实现应该是：MessageSegment("ark", {'ark': {...}})
             return {
@@ -115,15 +115,20 @@ def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, A
                 "content": markdown_data.get("content"),
                 "keyboard": markdown_data.get("keyboard")
             }
-        elif seg_type == "record":
-            # 都唐完了，最开始我没测试silk..因为我的使用场景里不包含音频
-            # 但是现在测完了应该ok
-            # Onebot端实现应该是：MessageSegment.record(f"base64://{silk_base64}")
+        elif seg_type == "achievement":
             return {
-                "type": "file",
-                "file_type": 3,
-                "data": data.get("file")
+                "type": "achievement",
+                "achievement_id": data.get("id"),
+                "title": data.get("title"),
+                "description": data.get("description"),
+                "rarity": data.get("rarity","common")
             }
+        # elif seg_type == "record": # 我不用，用的话可以自己取消注释
+        #     return {
+        #         "type": "file",
+        #         "file_type": 3,
+        #         "data": data.get("file")
+        #     }
         else:
             rich_segments.append({
                 "type": "text",

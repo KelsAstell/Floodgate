@@ -10,7 +10,8 @@ from cachetools import TTLCache
 from fastapi import HTTPException
 
 from config import *
-from openapi.database import get_union_id_by_digit_id, increment_usage
+from openapi.database import get_union_id_by_digit_id, increment_usage, add_achievement
+from openapi.draw_ach import generate_achievement_image
 from openapi.parse_open_event import message_id_to_open_id
 from openapi.token_manage import token_manager
 
@@ -246,6 +247,18 @@ async def post_im_message(user_id, group_id, message):
             "msg_id": msg_id,
             "keyboard": message.get("keyboard"), "msg_seq": msg_seq}
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
+    elif message.get("type") == "achievement": # 自定义成就消息段
+        # MessageSegment("achievement", {"id": 1,"title":"测试成就AbCd","description":"测试成就AbCdefgH", "rarity":"common"})
+        is_new = await add_achievement(user_id, message.get("achievement_id"))
+        if not is_new:
+            # pass
+            return {"msg": "User have already got this achievement"}
+        file_data = await generate_achievement_image(message.get("achievement_id"), message["title"], message["description"], message.get("rarity"))
+        payload = {"file_type": 1, "file_data": file_data}
+        ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
+        payload = {"content": "获得了新的成就！", "msg_type": 7, "media": {"file_info": ret["file_info"]}, "msg_id": msg_id,
+                   "msg_seq": await get_next_msg_seq(msg_id)}
+        return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload, False)
     elif message.get("type") == "markdown":
         payload = {
             "content": "markdown",
