@@ -4,13 +4,15 @@ import time
 import uvicorn
 import asyncio
 from typing import Optional
+
+from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id
+from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id, reset_usage_today
 from openapi.encrypt import verifier
 from openapi.inner_cmd import parse_floodgate_cmd
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add
@@ -49,6 +51,7 @@ async def lifespan(app: FastAPI):
     await refresh_access_token()
     scheduler = AsyncIOScheduler()
     scheduler.add_job(flush_usage_to_db, trigger=IntervalTrigger(minutes=10))
+    scheduler.add_job(reset_usage_today, trigger=CronTrigger(hour=0, minute=0))
     scheduler.add_job(refresh_access_token, trigger=IntervalTrigger(seconds=30))
     scheduler.start()
     end_time = time.time()
