@@ -93,7 +93,7 @@ async def openapi_webhook(request: Request):
                 if is_rate_limit:
                     return {"status": "rate_limit", "op": op}
             global CURRENT_MSG_ID
-            await parse_floodgate_cmd(start_time,connected_clients,d)
+            await parse_floodgate_cmd(start_time,connected_clients,payload,request.headers)
             ob_data = await parse_open_message_event(CURRENT_MSG_ID, d)
             if not ob_data:
                 log.info("平台推送事件消息已去重")
