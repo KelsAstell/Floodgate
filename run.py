@@ -75,7 +75,8 @@ async def openapi_webhook(request: Request):
     d = payload.get("d")
     if op == 13:
         try:
-            return await verifier.verify_plain_token(payload)
+            log.success(f"收到 OpenAPI 验证请求")
+            return await verifier.verify_plain_token(d)
         except Exception as e:
             log.error(f"发送 WebSocket 消息失败: {e}")
             raise HTTPException(status_code=500, detail="Invalid signature or processing failed")
