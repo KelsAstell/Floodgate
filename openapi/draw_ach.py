@@ -183,7 +183,10 @@ async def generate_achievement_page_image(user_achievements, page: int = 1, page
 
         draw = ImageDraw.Draw(background)
         draw.text((56, 12), ach.get("title", "空成就"), font=get_font(18), fill=title_color)
-        draw.text((56, 34), ach.get("description", "怎么回事呢..."), font=get_font(16), fill=(255, 255, 255))
+        if rarity == "unfinished":
+            draw.text((56, 34), ach.get("description", "怎么回事呢...") if not ach.get("mask") else "？？？？？", font=get_font(16), fill=(255, 255, 255))
+        else:
+            draw.text((56, 34), ach.get("description", "怎么回事呢..."), font=get_font(16), fill=(255, 255, 255))
 
         row = idx // columns
         col = idx % columns
@@ -204,5 +207,5 @@ async def generate_achievement_page_image(user_achievements, page: int = 1, page
     return base64.b64encode(buffer.getvalue()).decode('ascii')
 
 #b64_data = asyncio.run(generate_achievement_image(5))
-# b64_data = asyncio.run(generate_achievement_page_image([11,7,8,10],1))
+#b64_data = asyncio.run(generate_achievement_page_image([12,7,11],1))
 # print(b64_data)
