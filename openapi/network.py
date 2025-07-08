@@ -179,8 +179,29 @@ async def post_floodgate_message(msg, d):
     else:
         endpoint = "/v2/users"
         union_id = user_openid
-    return await call_open_api("POST", f"{endpoint}/{union_id}/messages", {"content": msg, "msg_type": 0, "msg_id": d.get("id", "0"),"msg_seq": await get_next_msg_seq(d.get("id", "0"))}, False)
+    msg_id = d.get("id", "0")
+    return await call_open_api("POST", f"{endpoint}/{union_id}/messages", {"content": msg, "msg_type": 0, "msg_id": msg_id,"msg_seq": await get_next_msg_seq(msg_id)}, False)
 
+async def post_floodgate_rich_message(msg, image, d):
+    user_openid = d.get("author", {}).get("union_openid")
+    group_openid = d.get("group_openid",d.get("channel_id"))
+    if group_openid:
+        union_id = group_openid
+        if str(group_openid).isdigit():
+            endpoint = "/channels"
+        else:
+            msg = "\n" +  msg
+            endpoint = "/v2/groups"
+    else:
+        endpoint = "/v2/users"
+        union_id = user_openid
+    payload = {"file_type": 1, "file_data": image}
+    ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
+    image_info = ret["file_info"]
+    msg_id = d.get("id", "0")
+    payload = {"content": msg, "msg_type": 7, "media": {"file_info": image_info}, "msg_id": msg_id,
+               "msg_seq": await get_next_msg_seq(msg_id)}
+    return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload, False)
 
 async def post_im_message(user_id, group_id, message):
     msg_id = await message_id_to_open_id(user_id, group_id)
@@ -248,12 +269,10 @@ async def post_im_message(user_id, group_id, message):
             "keyboard": message.get("keyboard"), "msg_seq": msg_seq}
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
     elif message.get("type") == "achievement": # 自定义成就消息段
-        # MessageSegment("achievement", {"id": 1,"title":"测试成就AbCd","description":"测试成就AbCdefgH", "rarity":"common"})
         is_new = await add_achievement(user_id, message.get("achievement_id"))
         if not is_new:
-            # pass
             return {"msg": "User have already got this achievement"}
-        file_data = await generate_achievement_image(message.get("achievement_id"), message["title"], message["description"], message.get("rarity"))
+        file_data = await generate_achievement_image(message.get("achievement_id"))
         payload = {"file_type": 1, "file_data": file_data}
         ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
         payload = {"content": "获得了新的成就！", "msg_type": 7, "media": {"file_info": ret["file_info"]}, "msg_id": msg_id,

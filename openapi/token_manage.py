@@ -17,7 +17,7 @@ class AccessTokenManager:
             return self._access_token
         if (self._access_token is None or
                 self._expires_in is None or
-                datetime.now(timezone.utc) > self._expires_in - timedelta(seconds=30)):
+                datetime.now(timezone.utc) > self._expires_in - timedelta(seconds=40)):
             await self._refresh_access_token()
             if self._expires_in is not None:
                 try:

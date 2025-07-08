@@ -34,3 +34,21 @@ ACHIEVEMENT_IDMAP = {
     15:"43/430696", # 沙漏
     16:"82/829197" # 金锭
 }
+ACHIEVEMENT_DATA = {
+    1:{"id": 1,"title":"时神的礼物","description":"使用超级丝瓜卡", "rarity":"epic"},
+    2:{"id": 2,"title":"冒险，于薄暮启程","description":"4点半前游玩福瑞大冒险", "rarity":"epic"},
+    3:{"id": 3,"title":"我也是有身份的人","description":"成功绑定了QQ", "rarity":"common"},
+    4:{"id": 4,"title":"君の名は","description":"Kimi no na wa", "rarity":"uncommon"},
+    5:{"id": 5,"title":"舞萌吃蒸虾头","description":"闭店时间使用会让bot鼠掉的命令", "rarity":"epic"},
+    6:{"id": 6,"title":"鱼降临","description":"赞美水鱼", "rarity":"epic"},
+    7:{"id": 7,"title":"读秒大王","description":"成为今天第一个挖土豆的用户", "rarity":"epic"},
+    8:{"id": 8,"title":"彩虹的尽头","description":"艾斯没能等到晴天。", "rarity":"epic"},
+    9:{"id": 9,"title":"镜中自我","description":"查询你自己的每日鉴毛", "rarity":"common"},
+    10:{"id": 10,"title":"我叫艾斯，你叫什么","description":"成功为毛毛投稿了别名", "rarity":"common"},
+    11:{"id": 11,"title":"风带来远方的消息","description":"投稿毛毛星期五并收到回复", "rarity":"rare"},
+    12:{"id": 12,"title":"富兽太","description":"单次打榜消耗4096根以上呆毛", "rarity":"epic"},
+    13:{"id": 13,"title":"安慰奖","description":"这是给你的奖励（？", "rarity":"common"},
+    14:{"id": 14,"title":"豪掷千金","description":"兑换狼狼骰单次消耗超过1024呆毛", "rarity":"epic"},
+    15:{"id": 15,"title":"过去的证明","description":"带着它们，前往下一个未来吧", "rarity":"common"},
+    16:{"id": 16,"title":"于花海重逢","description":"使用福瑞大冒险的特殊圣物", "rarity":"epic"}
+}
