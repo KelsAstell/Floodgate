@@ -267,6 +267,8 @@ async def reset_usage_today():
         row = await cursor.fetchone()
         used_count = row[0] or 0
         total_calls = row[1] or 0  # 避免 None
+        await db.execute('UPDATE usage SET usage_today = 0 WHERE usage_today != 0')
+        await db.commit()
     today = datetime.date.today()
     yesterday = today - datetime.timedelta(days=1)
     if os.path.exists(STAT_LOG):

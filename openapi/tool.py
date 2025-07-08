@@ -174,6 +174,6 @@ async def get_dau_history():
         days_ago = (today - entry_date).days
         label = f"{days_ago}天前" if days_ago > 0 else "今天"
         lines.append(
-            f"{entry_date.month}月{entry_date.day}日({label})：人数{entry['users']}，调用次数{entry['calls']}"
+            f"{entry_date.month}月{entry_date.day}日({label})：{entry['users']}用户 | {entry['calls']}调用"
         )
     return "\n".join(lines)

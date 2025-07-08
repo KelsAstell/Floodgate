@@ -44,4 +44,4 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
         if await is_user_admin(d):
             dau_data = await get_dau_today()
             history_dau_msg = await get_dau_history()
-            return await post_floodgate_message(f"---{BOT_NAME}数据统计---\n今日活跃用户数：{dau_data.get('dau', 0)}\n今日总调用数：{dau_data.get('dai', 0)}\n{history_dau_msg}", d)
+            return await post_floodgate_message(f"---{BOT_NAME}数据统计---\n活跃用户数：{dau_data.get('dau', 0)}\n总调用数：{dau_data.get('dai', 0)}\n{history_dau_msg}", d)
