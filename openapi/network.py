@@ -269,10 +269,11 @@ async def post_im_message(user_id, group_id, message):
             "keyboard": message.get("keyboard"), "msg_seq": msg_seq}
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
     elif message.get("type") == "achievement": # 自定义成就消息段
-        is_new = await add_achievement(user_id, message.get("achievement_id"))
+        ach_id = message.get("achievement_id")
+        is_new = await add_achievement(user_id, ach_id)
         if not is_new:
             return {"msg": "User have already got this achievement"}
-        file_data = await generate_achievement_image(message.get("achievement_id"))
+        file_data = await generate_achievement_image(ach_id)
         payload = {"file_type": 1, "file_data": file_data}
         ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
         payload = {"content": "获得了新的成就！", "msg_type": 7, "media": {"file_info": ret["file_info"]}, "msg_id": msg_id,

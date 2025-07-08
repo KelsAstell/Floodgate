@@ -119,9 +119,6 @@ def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, A
             return {
                 "type": "achievement",
                 "achievement_id": data.get("id"),
-                "title": data.get("title"),
-                "description": data.get("description"),
-                "rarity": data.get("rarity","common")
             }
         # elif seg_type == "record": # 我不用，用的话可以自己取消注释
         #     return {
