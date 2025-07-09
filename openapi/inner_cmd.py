@@ -15,7 +15,7 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
     if not cmd.startswith("~"):
         return
     cmd = cmd[1:]
-    if cmd.startswith("fg"):
+    if cmd.startswith("health"):
         data = await get_health(start_time, connected_clients)
         cache = data.get('cache')
         x_timestamp = int(headers.get('x-signature-timestamp',0))
@@ -25,18 +25,12 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
             pushdown_time =  f"{delta_ms / 1000:.2f} 秒"
         else:
             pushdown_time =  f"{delta_ms:.2f} 毫秒"
-        if await is_user_admin(d):
-            msg = (
+        msg = (
                 f"Floodgate：{'✅已连接' if data['clients'] > 0 else '❌未连接'}({data['clients']}个实例)\n版本号：{data['version']}-{data['env']}\n"
                 f"运行时长：{data['uptime']}\nToken有效期：{data['access_token']['remain_seconds']}秒\n"
                 f"消息补发：成功({data['send_failed'].get('success', 0)}) | 失败({data['send_failed'].get('failed', 0)})\n"
                 f"内存缓存利用率：{100 * cache['message']['seq_cache_size'] / cache['message']['seq_cache_size_max']:.2f}%\n"
-                f"待提交的统计：{cache['usage']['flush_size']}\n消息下发：{'✅正常' if delta_ms < 2000 else '❌异常'}({pushdown_time})")
-        else:
-            msg = (
-                f"Floodgate：{'✅已连接' if data['clients'] > 0 else '❌未连接'}({data['clients']}个实例)\n版本号：{data['version']}\n"
-                f"运行时长：{data['uptime']}\n"
-                f"消息下发：{'✅正常' if delta_ms < 2000 else '❌异常'}({pushdown_time})")
+                f"待提交的统计：{cache['usage']['flush_size']}\n消息下发：{'✅正常' if delta_ms < 1000 else '❌缓慢'}({pushdown_time})")
         return await post_floodgate_message(msg, d)
     elif cmd.startswith("offline"):
         if await is_user_admin(d):
