@@ -90,9 +90,14 @@ async def call_open_api(method: str, endpoint: str, payload: dict = None, sleepy
                         return data
                     else:
                         error_text = await response.text()
-                        # 打印错误信息..有点吵，我先给注释了，这个bug奇奇怪怪的，总之重发能解决
-                        # log.error(f"请求失败: {method} {url}, 状态码: {response.status}, 错误信息: {error_text}")
+                        log.error(f"请求失败: {method} {url}, 状态码: {response.status}, 错误信息: {error_text}")
                         log.debug(f"payload: {json.dumps(payload, ensure_ascii=False)[:300]}")
+                        if response.status == 400:
+                            err_data = await response.json()
+                            if err_data.get("err_code") == 40054017:
+                                await call_open_api("POST", endpoint, {"content": f"消息发送错误：{err_data.get('message')}\ntraceID:{err_data.get('trace_id')}", "msg_type": 0, "msg_id": payload["msg_id"],"msg_seq": await get_next_msg_seq(payload["msg_id"])}, sleepy=False)
+                            elif err_data.get("err_code") == 40054005:
+                                payload["msg_seq"] = await get_next_msg_seq(payload["msg_id"])
                         if attempt < retries - 1:
                             await asyncio.sleep(1)
                             log.warning(f"第 {attempt + 1} 次重试...")
