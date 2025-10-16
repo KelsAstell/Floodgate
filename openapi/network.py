@@ -117,6 +117,20 @@ async def call_open_api(method: str, endpoint: str, payload: dict = None, sleepy
                 else:
                     raise HTTPException(status_code=503, detail=f"请求OpenAPI时出现异常: {e}")
 
+# 添加一个新的ID生成器类
+class IncrementalIDGenerator:
+    def __init__(self, start=1):
+        self._current_id = start
+        self._lock = asyncio.Lock()
+
+    async def next_id(self):
+        async with self._lock:
+            current_id = self._current_id
+            self._current_id += 1
+            return str(current_id)
+
+# 创建全局实例
+msg_id_generator = IncrementalIDGenerator(1029)
 
 async def post_guild_image(data):
     base64_image = data.get("base64_image", "")
@@ -154,7 +168,7 @@ async def post_guild_image(data):
     )
     form.add_field(
         name="msg_id",
-        value="1024"
+        value=await msg_id_generator.next_id()
     )
     async with aiohttp.ClientSession() as session:
         try:

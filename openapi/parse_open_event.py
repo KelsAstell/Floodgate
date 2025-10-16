@@ -61,76 +61,114 @@ def convert_openapi_message_to_cq(content: str, attachments: list) -> list:
 
 from typing import List, Dict, Any
 
+
+def returnable_ark(data):
+    # Onebot端实现应该是：MessageSegment("ark", {'ark': {...}})
+    return {
+        "type": "ark",
+        "ark": data.get("ark")
+    }
+
+def returnable_markdown(data):
+    # Onebot端实现应该是：MessageSegment("markdown", {"data": {'keyboard': {"id": "102097712_1736214096"}}})
+    # 或者 MessageSegment("markdown", {"data": {'content':{...}, 'keyboard': {"id": "102097712_1736214096"}}})
+    markdown_data = data.get("data")
+    if "content" not in markdown_data:
+        return {
+            "type": "markdown_keyboard",
+            "keyboard": markdown_data.get("keyboard")
+        }
+    return {
+        "type": "markdown",
+        "content": markdown_data.get("content"),
+        "keyboard": markdown_data.get("keyboard")
+    }
+
+def returnable_achievement(data):
+    return {
+        "type": "achievement",
+        "achievement_id": data.get("id"),
+    }
+
+def returnable_record(data):
+    return {
+        "type": "file",
+        "file_type": 3,
+        "data": data.get("file")
+    }
+
+
+
+
+# 立即返回的消息类型
+RETURNABLE_SEGMENT_DICT = {
+    "ark": returnable_ark,
+    "markdown": returnable_markdown,
+    "achievement": returnable_achievement,
+    "record": returnable_record
+}
+
+def rich_segment_text(data, rich_segments, seg_type):
+    text = data.get("text", "")
+    if text:
+        rich_segments.append({
+            "type": "text",
+            "text": text
+        })
+    return rich_segments
+
+def rich_segment_image(data, rich_segments, seg_type):
+    url = data.get("file") or data.get("url")
+    if url:
+        rich_segments.append({
+            "type": "image",
+            "url": url
+        })
+    return rich_segments
+
+def rich_segment_face(data, rich_segments, seg_type):
+    face_id = data.get("face_id")
+    if face_id:
+        rich_segments.append({
+            "type": "text",
+            "text": f"[表情：{face_id_dict.get(face_id)}]"
+        })
+    return rich_segments
+
+def rich_segment_at(data, rich_segments, seg_type):
+    #疑似 message_reference，但是官方文档显示暂未支持
+    # user_id = data.get("qq")
+    # if user_id:
+    #     rich_segments.append({
+    #         "type": "mention",
+    #         "user_id": user_id
+    #     })
+    return rich_segments
+
+def rich_segment_unknown(data, rich_segments, seg_type):
+    rich_segments.append({
+        "type": "text",
+        "text": f"[UNKNOWN: {seg_type}]"
+    })
+    return rich_segments
+
+
+# 富文本消息类型
+RICH_TEXT_SEGMENT_DICT = {
+    "text":rich_segment_text,
+    "image":rich_segment_image,
+    "face":rich_segment_face,
+    "at":rich_segment_at,
+}
+
 def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, Any]:
     rich_segments = []
     for seg in segments:
         seg_type = seg.get("type")
         data = seg.get("data", {})
-        if seg_type == "text":
-            text = data.get("text", "")
-            if text:
-                rich_segments.append({
-                    "type": "text",
-                    "text": text
-                })
-        #
-        # elif seg_type == "at": #疑似 message_reference，但是官方文档显示暂未支持
-        #     user_id = data.get("qq")
-        #     if user_id:
-        #         rich_segments.append({
-        #             "type": "mention",
-        #             "user_id": user_id
-        #         })
-        elif seg_type == "image":
-            url = data.get("file") or data.get("url")
-            if url:
-                rich_segments.append({
-                    "type": "image",
-                    "url": url
-                })
-        # elif seg_type == "face": # 我不用，用的话可以自己取消注释
-        #     face_id = data.get("face_id")
-        #     if face_id:
-        #         rich_segments.append({
-        #             "type": "text",
-        #             "text": f"[表情：{face_id_dict.get(face_id)}]"
-        #         })
-        elif seg_type == "ark": # 乖，咱们单发ark，别整花活
-            # Onebot端实现应该是：MessageSegment("ark", {'ark': {...}})
-            return {
-                "type": "ark",
-                "ark": data.get("ark")
-            }
-        elif seg_type == "markdown": # 乖，咱们别往markdown里塞别的，md和文字分开两条发，别整花活
-            # Onebot端实现应该是：MessageSegment("markdown", {"data": {'keyboard': {"id": "102097712_1736214096"}}})
-            # 或者 MessageSegment("markdown", {"data": {'content':{...}, 'keyboard': {"id": "102097712_1736214096"}}})
-            markdown_data = data.get("data")
-            if "content" not in markdown_data:
-                return {
-                    "type": "markdown_keyboard",
-                    "keyboard": markdown_data.get("keyboard")
-                }
-            return {
-                "type": "markdown",
-                "content": markdown_data.get("content"),
-                "keyboard": markdown_data.get("keyboard")
-            }
-        elif seg_type == "achievement":
-            return {
-                "type": "achievement",
-                "achievement_id": data.get("id"),
-            }
-        # elif seg_type == "record": # 我不用，用的话可以自己取消注释
-        #     return {
-        #         "type": "file",
-        #         "file_type": 3,
-        #         "data": data.get("file")
-        #     }
-        else:
-            rich_segments.append({
-                "type": "text",
-                "text": f"[UNSUPPORTED: {seg_type}]"
-            })
+        if seg_type in RETURNABLE_SEGMENT_DICT:
+            return RETURNABLE_SEGMENT_DICT[seg_type](data)
+        rich_segments = RICH_TEXT_SEGMENT_DICT.get(seg_type, rich_segment_unknown)(data, rich_segments, seg_type)
     if len(rich_segments) == 1 and rich_segments[0]["type"] == "text":
         return {
             "type": "text",
