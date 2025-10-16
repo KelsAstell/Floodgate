@@ -98,7 +98,7 @@ async def call_open_api(method: str, endpoint: str, payload: dict = None, sleepy
                                 await call_open_api("POST", endpoint, {"content": f"消息发送错误：{err_data.get('message')}\ntraceID:{err_data.get('trace_id')}", "msg_type": 0, "msg_id": payload["msg_id"],"msg_seq": await get_next_msg_seq(payload["msg_id"])}, sleepy=False)
                             elif err_data.get("err_code") == 40054005:
                                 payload["msg_seq"] = await get_next_msg_seq(payload["msg_id"])
-                            elif err_data.get("err_code") == 40034101: # 机器人非群成员
+                            elif err_data.get("err_code") in [40034101, 40054002]: # 机器人非群成员/被禁言
                                 SEND_FAILED_DICT["success"] += 1
                                 break
                         if attempt < retries - 1:
