@@ -166,9 +166,11 @@ async def post_guild_image(data):
         filename="image.jpg",
         content_type="image/jpeg"
     )
+    #msg_id = await msg_id_generator.next_id()
+    #print("msg_id:", msg_id)
     form.add_field(
         name="msg_id",
-        value=await msg_id_generator.next_id()
+        value="1029"
     )
     async with aiohttp.ClientSession() as session:
         try:
