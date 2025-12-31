@@ -38,7 +38,7 @@ async def _webhook_verify(payload: dict):
     except Exception as e:
         log.error(f"Failed to sign message: {e}")
         return Response(content="Failed to sign message", status_code=500)
-
+    log.success(f"计算的签名为: 'plain_token': {plain_token}, 'signature': {signature_hex}")
     return Response(
         content=json.dumps({"plain_token": plain_token, "signature": signature_hex}),
         status_code=200

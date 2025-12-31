@@ -4,19 +4,21 @@ import time
 import uvicorn
 import asyncio
 from typing import Optional
+
+from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id
+from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id, reset_usage_today
 from openapi.encrypt import verifier
 from openapi.inner_cmd import parse_floodgate_cmd
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add
 from openapi.token_manage import token_manager
 from openapi.network import post_im_message, delete_im_message, post_guild_image, post_floodgate_message
-from openapi.tool import check_config, get_health, get_maintaining_message
+from openapi.tool import check_config, get_health, get_maintaining_message, show_welcome, rate_limit
 from config import *
 
 
@@ -48,7 +50,8 @@ async def lifespan(app: FastAPI):
     await init_db()
     await refresh_access_token()
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(flush_usage_to_db, trigger=IntervalTrigger(minutes=5))
+    scheduler.add_job(flush_usage_to_db, trigger=IntervalTrigger(minutes=10))
+    scheduler.add_job(reset_usage_today, trigger=CronTrigger(hour=0, minute=0))
     scheduler.add_job(refresh_access_token, trigger=IntervalTrigger(seconds=30))
     scheduler.start()
     end_time = time.time()
@@ -66,12 +69,14 @@ connected_clients_lock = asyncio.Lock()
 @app.post(WEBHOOK_ENDPOINT)
 async def openapi_webhook(request: Request):
     payload = await request.json()
-    # log.debug(f"收到 OpenAPI 请求: {payload}")
+    log.debug(f"收到 OpenAPI 请求: {payload}")
+    log.debug(f"请求头: {request.headers}")
     op = payload.get("op")
     d = payload.get("d")
     if op == 13:
         try:
-            return await verifier.verify_plain_token(payload)
+            log.success(f"收到 OpenAPI 验证请求")
+            return await verifier.verify_plain_token(d)
         except Exception as e:
             log.error(f"发送 WebSocket 消息失败: {e}")
             raise HTTPException(status_code=500, detail="Invalid signature or processing failed")
@@ -82,9 +87,13 @@ async def openapi_webhook(request: Request):
         t = payload.get("t")
         if t == "GROUP_ADD_ROBOT":
             ob_data = await parse_group_add(d)
-        elif t in ["GROUP_AT_MESSAGE_CREATE", "C2C_MESSAGE_CREATE"]:
+        elif t in ["GROUP_AT_MESSAGE_CREATE", "C2C_MESSAGE_CREATE","AT_MESSAGE_CREATE"]:
+            if RATE_LIMIT:
+                is_rate_limit = await rate_limit(d)
+                if is_rate_limit:
+                    return {"status": "rate_limit", "op": op}
             global CURRENT_MSG_ID
-            await parse_floodgate_cmd(start_time,connected_clients,d)
+            await parse_floodgate_cmd(start_time,connected_clients,payload,request.headers)
             ob_data = await parse_open_message_event(CURRENT_MSG_ID, d)
             if not ob_data:
                 log.info("平台推送事件消息已去重")
@@ -138,9 +147,9 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             raw_data = await websocket.receive_text()
-            log.debug(f"收到客户端消息: {raw_data}")
-            message = json.loads(raw_data)
+            log.debug(f"[WebSocket] 收到客户端消息: {raw_data}")
             try:
+                message = json.loads(raw_data)
                 if message.get("action") == "send_msg":
                     params = message["params"]
                     msg_list = params.get("message", ["", "", {"type": "text", "data": {"text": "未知异常"}}])
@@ -159,8 +168,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 else:
                     await websocket.send_json({"status": "failed", "retcode": 10001, "msg": "Unsupported action"})
             except Exception as e:
-                log.error(f"处理消息ID-{message['params'].get('message_id')}出错: {e}")
-                log.error(f"原始消息: {raw_data[:100]}")
+                log.error(f"[WebSocket] 处理消息出错: {e}")
+                #log.error(f"[Ob11 Request] : {json.loads(raw_data)}")
                 await websocket.send_json(
                     {"status": "failed", "retcode": 10002, "msg": f"Error parsing or processing request: {e}"})
     except Exception as e:
@@ -189,7 +198,7 @@ async def user_stats(request: UserStatsRequest):
     return {"usage_count": usage_count}
 
 
-@app.get("/health")
+@app.get(f"{WEBHOOK_ENDPOINT}/health")
 async def health_check():
     return await get_health(start_time,connected_clients)
 
@@ -208,7 +217,9 @@ CURRENT_MSG_ID = 0
 if __name__ == "__main__":
     log.remove()
     log.add(sys.stdout, level=LOG_LEVEL, format=LOG_FORMAT)
+    log.add("warnings_and_errors.log", level="WARNING", rotation="10 MB", retention="7 days", encoding="utf-8")
     import ctypes
     ctypes.windll.kernel32.SetConsoleTitleW(f"Floodgate {VERSION}" if not CUSTOM_TITLE else CUSTOM_TITLE)
     asyncio.run(check_config())
+    asyncio.run(show_welcome())
     uvicorn.run(app, host="0.0.0.0", port=PORT)

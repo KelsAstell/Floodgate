@@ -15,3 +15,80 @@ face_id_dict = {
     130: "烧香", 131: "发呆2", 132: "裂开", 133: "让我看看", 134: "叹气", 135: "苦涩", 136: "裂开2", 137: "让我想想", 138: "哦哟", 139: "忐忑",
     140: "不失礼貌", 141: "旺柴", 142: "舔屏", 143: "加油抱拳", 144: "汗", 145: "天啊", 146: "Emm", 147: "社会社会", 148: "旺旺", 149: "好的"
 }
+
+ACHIEVEMENT_IDMAP = {
+    1:"10/102339", # 礼物盒
+    2:"82/820265", # 骰子
+    3:"65/655481", # 身份卡
+    4:"59/595167", # 告示牌
+    5:"18/188583", # 虾
+    6:"17/177434", # 鱼
+    7:"0/925", # 土豆
+    8:"83/831524", # 日记本
+    9:"52/527399", # 镜子
+    10:"66/668414", # 艾斯
+    11:"52/527413", # 信
+    12:"0/960", # 金锭
+    13:"0/961", # 金粒
+    14:"0/960", # 金锭
+    15:"43/430696", # 沙漏
+    16:"82/829197", # 金锭
+    17:"0/9890", # 终端
+    18:"50/507339", # 面具
+    19:"0/7659", # 机器人
+    20:"66/668414", # 艾斯
+    21: "5/52414", # 契约
+    22: "52/527413", # 信
+    23: "55/551482", # 船票
+    24:"22/227765", # 电子管
+    25: "18/188617", # 草帽
+    26: "17/177272", # 金币
+    27:"41/410720", # 天空石碑
+    28:"15/157571", # 口袋
+    29:"41/412567", # 锄头
+    30:"68/683644", # 呆毛
+    31: "74/742919", # 卡片
+    32: "68/683644", # 呆毛
+    33: "82/820265", # 骰子
+    34: "0/1007", # 毒马铃薯
+    35: "71/713436", # 塔罗牌
+    36: "71/713436" # 塔罗牌
+}
+ACHIEVEMENT_DATA = {
+    1:{"id": 1,"title":"时神的礼物","description":"使用超级丝瓜卡", "rarity":"epic"},
+    2:{"id": 2,"title":"冒险，于薄暮启程","description":"4点半前游玩福瑞大冒险", "rarity":"epic","mask":True},
+    3:{"id": 3,"title":"我也是有身份的人","description":"成功绑定了QQ", "rarity":"common","mask":True},
+    4:{"id": 4,"title":"君の名は","description":"Kimi no na wa", "rarity":"uncommon","mask":True},
+    5:{"id": 5,"title":"舞萌吃蒸虾头","description":"闭店时间使用会让bot鼠掉的命令", "rarity":"epic","mask":True},
+    6:{"id": 6,"title":"鱼降临","description":"赞美水鱼", "rarity":"epic"},
+    7:{"id": 7,"title":"读秒大王","description":"成为今天第一个挖土豆的用户", "rarity":"epic"},
+    8:{"id": 8,"title":"彩虹的尽头","description":"艾斯没能等到晴天。", "rarity":"epic"},
+    9:{"id": 9,"title":"镜中自我","description":"查询你自己的每日鉴毛", "rarity":"common","mask":True},
+    10:{"id": 10,"title":"我叫艾斯，你叫什么","description":"成功为毛毛投稿了别名", "rarity":"common"},
+    11:{"id": 11,"title":"风带来远方的消息","description":"投稿毛毛星期五并收到回复", "rarity":"rare"},
+    12:{"id": 12,"title":"富兽太","description":"单次打榜消耗4096根以上呆毛", "rarity":"epic"},
+    13:{"id": 13,"title":"安慰奖","description":"这是给你的奖励（？", "rarity":"common"},
+    14:{"id": 14,"title":"豪掷千金","description":"兑换狼狼骰单次消耗超过1024呆毛", "rarity":"epic"},
+    15:{"id": 15,"title":"过去的证明","description":"带着它们，前往下一个未来吧", "rarity":"common"},
+    16:{"id": 16,"title":"于花海重逢","description":"使用福瑞大冒险的特殊圣物", "rarity":"epic","mask":True},
+    17:{"id": 17,"title":"万物运行的内在美","description":"精密的代码之下，有什么呢？", "rarity":"uncommon","mask":True},
+    18:{"id": 18,"title":"面具之下，是更美的面具","description":"更换一个头像", "rarity":"rare","mask":True},
+    19:{"id": 19,"title":"智械危机","description":"您完全不看指令说明的吗？", "rarity":"rare","mask":True},
+    20:{"id": 20,"title":"给您加料了","description":"在给艾斯打榜时做坏事", "rarity":"epic","mask":True},
+    21:{"id": 21,"title":"约定的逆否命题","description":"携带圣物ID-100", "rarity":"epic","mask":True},
+    22:{"id": 22,"title":"万吨匿名信","description":"携带圣物ID-103", "rarity":"epic","mask":True},
+    23:{"id": 23,"title":"摇啊摇，摇到外婆桥","description":"携带圣物ID-104", "rarity":"epic","mask":True},
+    24:{"id": 24,"title":"divERgence","description":"携带圣物ID-109", "rarity":"epic","mask":True},
+    25:{"id": 25,"title":"满级农夫大战恶魔狼","description":"携带圣物ID-110", "rarity":"epic","mask":True},
+    26:{"id": 26,"title":"时机之神迹","description":"携带圣物ID-115", "rarity":"epic","mask":True},
+    27:{"id": 27,"title":"在同一片天空下","description":"携带圣物ID-117", "rarity":"epic","mask":True},
+    28:{"id": 28,"title":"丰收年","description":"携带圣物ID-1001", "rarity":"common","mask":True},
+    29:{"id": 29,"title":"乡下生活","description":"携带圣物ID-1004", "rarity":"common","mask":True},
+    30:{"id": 30,"title":"时间的甜美","description":"携带圣物ID-101", "rarity":"epic","mask":True},
+    31:{"id": 31,"title":"反向欧皇","description":"丝瓜卡小游戏获得0呆毛", "rarity":"epic"},
+    32:{"id": 32,"title":"欧鳇寿命极长","description":"超级丝瓜卡小游戏获得1000呆毛", "rarity":"epic"},
+    33:{"id": 33,"title":"饱和式投掷","description":"单次消耗狼狼骰/金狼狼骰超过24个", "rarity":"epic","mask":True},
+    34:{"id": 34,"title":"必要的挫折","description":"升级土豆时出现大失败", "rarity":"epic","mask":True},
+    35:{"id": 35,"title":"金色传说","description":"获得福瑞签镀膜卡片", "rarity":"common"},
+    36:{"id": 36,"title":"珍视之人","description":"获得福瑞签超级隐藏卡片", "rarity":"epic","mask":True}
+}
