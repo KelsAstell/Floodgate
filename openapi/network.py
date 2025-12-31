@@ -304,14 +304,21 @@ async def post_im_message(user_id, group_id, message):
                    "msg_seq": await get_next_msg_seq(msg_id)}
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload, False)
     elif message.get("type") == "markdown":
+        # 构建markdown payload
+        # content字段可能包含 {"custom_template_id": "...", "params": [...]}
+        content = message.get("content")
         payload = {
             "content": "markdown",
             "msg_type": 2,
             "msg_id": msg_id,
-            "keyboard": message.get("keyboard"),
-            "markdown": message.get("markdown"),
             "msg_seq": msg_seq
         }
+        # 如果有keyboard，添加keyboard字段
+        if message.get("keyboard"):
+            payload["keyboard"] = message.get("keyboard")
+        # 如果content不为空，添加markdown字段
+        if content:
+            payload["markdown"] = content
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
     elif message.get("type") == "file":
         if message.get("file_type") == 3:  # silk语音

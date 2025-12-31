@@ -70,18 +70,29 @@ def returnable_ark(data):
     }
 
 def returnable_markdown(data):
-    # Onebot端实现应该是：MessageSegment("markdown", {"data": {'keyboard': {"id": "102097712_1736214096"}}})
-    # 或者 MessageSegment("markdown", {"data": {'content':{...}, 'keyboard': {"id": "102097712_1736214096"}}})
+    # 客户端发送: MessageSegment("markdown", {"content": {"custom_template_id": "...", "params": [...]}})
+    # 转换后: {"type": "markdown", "data": {"content": {...}}}
+    # 或者: MessageSegment("markdown", {"content": {...}, "keyboard": {...}})
     markdown_data = data.get("data")
-    if "content" not in markdown_data:
+    if markdown_data is None:
+        # 如果没有data字段，尝试直接从data获取content（兼容旧格式）
+        markdown_data = data
+    
+    content = markdown_data.get("content")
+    keyboard = markdown_data.get("keyboard")
+    
+    # 如果只有keyboard没有content，返回markdown_keyboard类型
+    if keyboard and not content:
         return {
             "type": "markdown_keyboard",
-            "keyboard": markdown_data.get("keyboard")
+            "keyboard": keyboard
         }
+    
+    # 返回完整的markdown消息
     return {
         "type": "markdown",
-        "content": markdown_data.get("content"),
-        "keyboard": markdown_data.get("keyboard")
+        "content": content,
+        "keyboard": keyboard
     }
 
 def returnable_achievement(data):
