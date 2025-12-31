@@ -70,9 +70,9 @@ ChatGPT 也可能会犯错。请核查重要信息。
 * ✅ 图床接口，QPS 0.6~1
 * ✅ 支持多类型消息转发（文本、图片(base64/本地文件/远程url)、Ark 卡片、Markdown、表情(文本描述)、silk 语音(base64/本地文件/远程url)等）
 * ✅ 基于MIT协议分发，高可配置
-* ✅ 兼容 Gensokyo 迁移(迁移数字id映射，不支持idmap_pro，您可以自行修改数据库的创建代码，欢迎pr)
+* ✅ 兼容 Gensokyo 迁移[教程](https://github.com/KelsAstell/Floodgate/tree/main/docs/export_bbolt/Export_Bbolt.md)(迁移数字id映射，不支持hash_id(仅支持数字ID迁移)，您可以自行修改数据库的创建代码，欢迎pr)
 * ✅ 秒速启动，无需等待
-* ✅ 支持兼容模式(数字ID)或透传模式Alpha(⚠️OpenID透传需Bot自行适配哦)！
+* ✅ 支持兼容模式(默认模式，数字ID)或透传模式Alpha(⚠️OpenID透传需Bot自行适配哦)！
 
 ![启动耗时](https://pic1.imgdb.cn/item/685d117a58cb8da5c8738334.png)
 
@@ -83,15 +83,16 @@ ChatGPT 也可能会犯错。请核查重要信息。
 | 消息类型       | OneBot v11 | DeluxeBOT | Floodgate | 说明                                                                                                    |
 |------------|------------|-----------|-----------|-------------------------------------------------------------------------------------------------------|
 | `文字`       | ✅          | ✅         | ✅         | 纯文本消息                                                                                                 |
-| `图片`       | ✅          | ✅         | ✅         | 支持 base64、远程url与本地文件路径                                                                                    |
+| `图片`       | ✅          | ✅         | ✅         | 支持 base64、远程url与本地文件路径                                                                                |
 | `图文混合`     | ✅          | ✅         | ✅         | 支持自动图文混排/队列上传（Floodgate 内部定义）                                                                         |
 | `markdown` | ❌          | ✅         | ✅         | [支持 Markdown 透传，构造代码请看文档](https://github.com/KelsAstell/Floodgate/tree/main/docs/Markdown.md)         |
 | `ark`      | ❌          | ✅         | ✅         | [支持 Ark 透传，构造代码请看文档](https://github.com/KelsAstell/Floodgate/tree/main/docs/Ark.md)                   |
+| `成就`       | ❌          | ✅         | ✅         | [支持 Achievement 消息段，构造代码请看文档](https://github.com/KelsAstell/Floodgate/tree/main/docs/Achievement.md)       |
 | `语音`       | ✅          | ✅         | ✅        | [支持 base64、远程url与本地文件路径传入的 silk，请看文档](https://github.com/KelsAstell/Floodgate/tree/main/docs/Silk.md) |
 | `撤回`       | ✅          | ✅         | ✅         | [支持撤回群消息和私聊消息，请看文档](https://github.com/KelsAstell/Floodgate/tree/main/docs/Recall.md)                 |
 | `表情`       | ✅          | ✅         | ✅         | 支持 显示表情文字                                                                                             |
 | `视频`       | ✅          | ❌         | ❌         | 未实现该功能，可能不会开发                                                                                         |
-| `文件`       | ✅          | ✅        | ❌         | 不支持泛文件上传                                                                                              |
+| `文件`       | ✅          | ✅        | ❌         | 无开放平台接口对等能力                                                                                           |
 | `at`       | ✅          | ❌         | ❌        | 无开放平台接口对等能力                                                                                           |
 | `回复`       | ✅          | ❌         | ❌         | 无开放平台接口对等能力                                                                                           |
 | `戳一戳`      | ✅          | ❌         | ❌         | 无开放平台接口对等能力                                                                                           |
@@ -100,9 +101,9 @@ ChatGPT 也可能会犯错。请核查重要信息。
 | 特殊接口          | 描述                | 文档                                                                                       | OneBot v11 支持 | DeluxeBOT 支持 | Floodgate 支持 | 说明                                                            |
 |---------------|-------------------|------------------------------------------------------------------------------------------|---------------|--------------|--------------|---------------------------------------------------------------|
 | /upload_image | `图床`              | [阳光哥布林也能看懂的图床文档](https://github.com/KelsAstell/Floodgate/tree/main/docs/Upload_image.md) | ⚠️需自行适配       | ✅            | ✅            | DeluxeBOT特化代码，图床基于沙箱频道实现，<br/>本地缓存由DeluxeBOT内部实现，该功能需要开发者自行适配 |
-| /user_stats   | `用户历史调用次数查询`      | FastAPI 已内置该接口文档                                                               | ⚠️需自行适配       | ✅            | ✅            | 具有60秒缓存时间                                                     |
+| /user_stats   | `用户历史调用次数查询`      | FastAPI 已内置该接口文档                                                                         | ⚠️需自行适配       | ✅            | ✅            | 具有60秒缓存时间                                                     |
 | /health       | `Floodgate 运行状态`  | FastAPI 已内置该接口文档                                                                         | ⚠️需自行适配       | ✅            | ✅           | GET接口，返回运行状态                                                  |
-| /get_opid     | `从虚拟值获取openID` | 暂无                                                                                       | ⚠️需自行适配       | ✅            | ⚠️           | 开发中                                                           |
+| /get_opid     | `从虚拟值获取openID` | 暂未开发，其实/avatar已经能获取到对应ID了                                                                | ⚠️需自行适配       | ✅            | ⚠️           | 开发中，懒x                                                        |
 | /avatar       | `从虚拟值获取头像`        | FastAPI 已内置该接口文档                                                                         | ⚠️需自行适配       | ✅           | ✅           | GET接口，返回图片地址                                                  |
 
 
@@ -113,7 +114,7 @@ ChatGPT 也可能会犯错。请核查重要信息。
 | 消息并发      | ⚠️            | ✅            | ✅            | 性能也就那样，别指望uvicorn太多，<br/>50并行创建新用户档案不报错，你应用端顶得住就行                               |
 | 入群event通知 | ✅             | ✅            | ✅            | 已实现标准notice                                                                     |
 | 断联维护消息    | ❌似了怎么回复       | ✅            | ✅            | 已实现断联时回复维护消息                                                                    |
-| 中间件内置命令   | ❌       | ✅            | ✅            | 内置命令文档施工中，现有命令：floodgate, offline                                               |
+| 中间件内置命令   | ❌       | ✅            | ✅            | 内置命令文档施工中，现有命令：~health, ~offline, ~dau                                          |
 | 事件日志      | ⚠️得用插件吧       | ✅            | ⚠️           | 开发中，基于用户的事件日志，为了快我不建议您开启这个功能，<br/>虽然我们有<b>没什么技术</b>的内存级别缓存                      |
 | 服务升级      | ❌无法支持         | ⚠️暂未支持       | ⚠️           | 咕咕中，若识别到 DeluxeBOT 的请求头，且 Floodgate 与 DeluxeBOT 部署于同一台服务器，则优先使用 UNIX Socket     |
 
@@ -264,3 +265,4 @@ Copyright (c) 2025 KelsAstell
 
 ## 联系作者
 * [GitHub](https://github.com/KelsAstell)
+* [群聊] 478842113
