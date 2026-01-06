@@ -132,6 +132,42 @@ class IncrementalIDGenerator:
 # 创建全局实例
 msg_id_generator = IncrementalIDGenerator(1029)
 
+async def verify_image_url(url: str, timeout: float = 3.0) -> bool:
+    """使用 GET 请求校验图片 URL 是否有效，只读取少量数据
+    
+    Args:
+        url: 要校验的图片 URL
+        timeout: 超时时间（秒）
+    
+    Returns:
+        bool: URL 有效返回 True，否则返回 False
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            # 使用 GET 请求，因为有些服务器不支持 HEAD 请求
+            async with session.get(url, ssl=False, timeout=aiohttp.ClientTimeout(total=timeout), allow_redirects=True) as response:
+                # 2xx 状态码认为是有效的
+                if 200 <= response.status < 300:
+                    # 检查 Content-Type 是否为图片类型
+                    content_type = response.headers.get('Content-Type', '')
+                    if content_type.startswith('image/'):
+                        # 只读取少量字节验证即可，不需要下载完整文件
+                        await response.content.read(1024)
+                        return True
+                    else:
+                        log.warning(f"URL 返回的 Content-Type 不是图片: {content_type}")
+                        return False
+                else:
+                    log.warning(f"URL 校验失败，状态码: {response.status}")
+                    return False
+    except asyncio.TimeoutError:
+        log.warning(f"URL 校验超时: {url}")
+        return False
+    except Exception as e:
+        log.warning(f"URL 校验异常: {e}")
+        return False
+
+
 async def post_guild_image(data):
     base64_image = data.get("base64_image", "")
     file_image = data.get("file_image", "")
@@ -180,7 +216,14 @@ async def post_guild_image(data):
                     log.debug(f"图片上传成功: {data}")
                     md5_hash = hashlib.md5(image_data).hexdigest().upper()
                     image_url = f"https://gchat.qpic.cn/qmeetpic/0/0-0-{md5_hash}/0"
-                    return {"url": image_url}
+                    # 验证生成的图片 URL 是否有效
+                    is_valid = await verify_image_url(image_url)
+                    if is_valid:
+                        log.success(f"图片上传成功: {image_url}")
+                        return {"url": image_url}
+                    else:
+                        log.error(f"图片 URL 验证失败: {image_url}")
+                        return {"error": "图片上传成功但 URL 验证失败"}
                 else:
                     text = await response.text()
                     log.error(f"Image uploaded failed: {text}")
