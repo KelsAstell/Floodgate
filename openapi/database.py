@@ -10,7 +10,7 @@ from config import MIGRATE_IDS, log, TRANSPARENT_OPENID, IDMAP_INITIAL_ID, IDMAP
     ACHIEVEMENT_PERSIST
 
 DB_NAME = 'storage.db'
-POOL_SIZE = 5
+POOL_SIZE = 10
 
 # 创建连接池
 class ConnectionPool:
@@ -18,15 +18,21 @@ class ConnectionPool:
         self.db_name = db_name
         self.pool_size = pool_size
         self._queue = None
+        self._initialized = False
 
     async def init(self):
+        if self._initialized:
+            return
         self._queue = asyncio.Queue()
         for _ in range(self.pool_size):
             conn = await aiosqlite.connect(self.db_name)
             await self._queue.put(conn)
+        self._initialized = True
 
     @asynccontextmanager
     async def connection(self):
+        if not self._initialized:
+            await self.init()
         conn = await self._queue.get()
         try:
             yield conn
@@ -38,6 +44,13 @@ class ConnectionPool:
             cursor = await conn.execute(query, params or ())
             await conn.commit()
             return cursor
+
+    async def close(self):
+        if self._queue:
+            while not self._queue.empty():
+                conn = await self._queue.get()
+                await conn.close()
+            self._initialized = False
 
 pool = ConnectionPool(DB_NAME, POOL_SIZE)
 
@@ -51,6 +64,7 @@ async def init_db():
                     achievement TEXT
                 )
             ''')
+        await pool.init()  # 初始化连接池
         return
     async with aiosqlite.connect(DB_NAME) as db:
         if ACHIEVEMENT_PERSIST:
@@ -93,15 +107,22 @@ async def init_db():
             log.warning("OpenID透传已启用，无法导入idmap映射表")
         if not os.path.exists(ids_path):
             log.warning("未找到ids.json文件，跳过导入idmap映射表")
+            await pool.init()  # 初始化连接池
             return
         await batch_insert_idmap_from_json(ids_path)
         log.success("导入idmap映射表成功")
+    await pool.init()  # 初始化连接池
+
+
+async def close_db_pool():
+    """关闭数据库连接池"""
+    await pool.close()
 
 
 async def add_achievement(user_id: str, achievement_id: int) -> bool:
     if not ACHIEVEMENT_PERSIST:
         return True
-    async with aiosqlite.connect(DB_NAME) as db:
+    async with pool.connection() as db:
         cursor = await db.execute(
             'SELECT achievement FROM achievement WHERE id = ?', (user_id,))
         row = await cursor.fetchone()
@@ -132,7 +153,7 @@ async def add_achievement(user_id: str, achievement_id: int) -> bool:
 
 
 async def get_achievement_list(user_id: str):
-    async with aiosqlite.connect(DB_NAME) as db:
+    async with pool.connection() as db:
         cursor = await db.execute(
             'SELECT achievement FROM achievement WHERE id = ?', (user_id,)
         )
@@ -177,7 +198,7 @@ async def batch_insert_idmap_from_json(ids_path):
     ]
 
     purified_data = [(key, value) for key, value in decoded_data if len(key)==32]
-    async with aiosqlite.connect(DB_NAME) as db:
+    async with pool.connection() as db:
         await db.executemany(
             'INSERT OR IGNORE INTO idmap (union_id, digit_id) VALUES (?, ?)',
             purified_data
@@ -190,7 +211,7 @@ async def batch_insert_idmap_from_json(ids_path):
 async def get_or_create_digit_id(union_id: str) -> int:
     if not union_id:
         return 0
-    async with aiosqlite.connect(DB_NAME) as db:
+    async with pool.connection() as db:
         # 检查是否已存在
         async with db.execute('SELECT digit_id FROM idmap WHERE union_id=?', (union_id,)) as cursor:
             row = await cursor.fetchone()
@@ -200,13 +221,8 @@ async def get_or_create_digit_id(union_id: str) -> int:
             row = await cursor.fetchone()
             max_digit_id = row[0] or IDMAP_INITIAL_ID
 
-        # 寻找下一个可用的digit_id
+        # 直接使用 MAX + 1，无需循环查找
         next_digit_id = max_digit_id + 1
-        while True:
-            async with db.execute('SELECT 1 FROM idmap WHERE digit_id=?', (next_digit_id,)) as cursor:
-                if not await cursor.fetchone():
-                    break
-            next_digit_id += 1
         await db.execute('INSERT INTO idmap (union_id, digit_id) VALUES (?, ?)',
                          (union_id, next_digit_id))
         await db.commit()
@@ -214,7 +230,7 @@ async def get_or_create_digit_id(union_id: str) -> int:
 
 @cached(ttl=IDMAP_TTL, cache=Cache.MEMORY)
 async def get_union_id_by_digit_id(digit_id: int) -> str:
-    async with aiosqlite.connect(DB_NAME) as db:
+    async with pool.connection() as db:
         async with db.execute('SELECT union_id FROM idmap WHERE digit_id=?', (digit_id,)) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else None
@@ -239,7 +255,7 @@ async def flush_usage_to_db():
             return
         to_write = dict(_pending_counts)
         _pending_counts.clear()
-        async with aiosqlite.connect(DB_NAME) as db:
+        async with pool.connection() as db:
             for id, count in to_write.items():
                 if TRANSPARENT_OPENID:
                     await db.execute('''
@@ -262,7 +278,7 @@ async def flush_usage_to_db():
 
 
 async def reset_usage_today():
-    async with aiosqlite.connect(DB_NAME) as db:
+    async with pool.connection() as db:
         cursor = await db.execute('SELECT COUNT(*), SUM(usage_today) FROM usage WHERE usage_today > 0')
         row = await cursor.fetchone()
         used_count = row[0] or 0
@@ -296,7 +312,7 @@ async def reset_usage_today():
 
 @cached(ttl=60, cache=Cache.MEMORY)
 async def get_dau_today() -> dict:
-    async with aiosqlite.connect(DB_NAME) as db:
+    async with pool.connection() as db:
         async with db.execute('SELECT COUNT(*), SUM(usage_today) FROM usage WHERE usage_today > 0') as cursor:
             row = await cursor.fetchone()
             dau = row[0] if row else 0
@@ -308,7 +324,7 @@ async def get_dau_today() -> dict:
 
 @cached(ttl=60, cache=Cache.MEMORY)
 async def get_usage_count(id) -> int:
-    async with aiosqlite.connect(DB_NAME) as db:
+    async with pool.connection() as db:
         if TRANSPARENT_OPENID:
             async with db.execute('SELECT usage_cnt FROM usage WHERE union_id=?', (id,)) as cursor:
                 row = await cursor.fetchone()

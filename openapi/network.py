@@ -21,6 +21,36 @@ cache_lock = asyncio.Lock()
 
 SEND_FAILED_DICT = {"success":0, "failed":0}
 
+# 全局 aiohttp ClientSession，避免重复创建连接
+_http_session: Optional[aiohttp.ClientSession] = None
+_session_lock = asyncio.Lock()
+
+async def get_http_session() -> aiohttp.ClientSession:
+    """获取或创建全局 HTTP Session，复用连接池"""
+    global _http_session
+    if _http_session is None or _http_session.closed:
+        async with _session_lock:
+            if _http_session is None or _http_session.closed:
+                connector = aiohttp.TCPConnector(
+                    limit=100,  # 最大并发连接数
+                    limit_per_host=30,  # 单主机最大连接数
+                    ttl_dns_cache=300,  # DNS 缓存时间
+                    enable_cleanup_closed=True
+                )
+                timeout = aiohttp.ClientTimeout(total=30, connect=10)
+                _http_session = aiohttp.ClientSession(
+                    connector=connector,
+                    timeout=timeout
+                )
+    return _http_session
+
+async def close_http_session():
+    """关闭全局 HTTP Session"""
+    global _http_session
+    if _http_session and not _http_session.closed:
+        await _http_session.close()
+        _http_session = None
+
 async def get_send_failed_count() -> dict:
     return SEND_FAILED_DICT
 
@@ -40,22 +70,22 @@ async def get_wss_gateway(access_token):
         "Authorization": f"QQBot {access_token}"
     }
 
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get(QQ_API_BASE + '/gateway', headers=headers, ssl=False) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    wss_url = data.get("url")
-                    if wss_url:
-                        log.success(f"成功获取 WSS 地址:{wss_url}")
-                        return wss_url
-                    else:
-                        log.error("响应中缺少 'url' 字段")
+    session = await get_http_session()
+    try:
+        async with session.get(QQ_API_BASE + '/gateway', headers=headers, ssl=False) as response:
+            if response.status == 200:
+                data = await response.json()
+                wss_url = data.get("url")
+                if wss_url:
+                    log.success(f"成功获取 WSS 地址:{wss_url}")
+                    return wss_url
                 else:
-                    error_text = await response.text()
-                    log.error(f"请求失败，状态码: {response.status}, 错误信息: {error_text}")
-        except aiohttp.ClientError as e:
-            log.error(f"网络请求异常: {e}")
+                    log.error("响应中缺少 'url' 字段")
+            else:
+                error_text = await response.text()
+                log.error(f"请求失败，状态码: {response.status}, 错误信息: {error_text}")
+    except aiohttp.ClientError as e:
+        log.error(f"网络请求异常: {e}")
 
 
 async def call_open_api(method: str, endpoint: str, payload: dict = None, sleepy:Optional[bool]=True):
@@ -69,53 +99,59 @@ async def call_open_api(method: str, endpoint: str, payload: dict = None, sleepy
         "Authorization": f"QQBot {access_token}"
     }
     await asyncio.sleep(int(NAP_MILLSECONDS)/1000) if NAP_MILLSECONDS > 0 and sleepy else None
-    async with aiohttp.ClientSession() as session:
-        retries = 3
-        for attempt in range(retries):
-            try:
-                log.debug(f"正在请求: {method} {url}, Headers: {headers}, Body: {payload}")
-                async with session.request(
-                        method=method,
-                        url=url,
-                        json=payload,
-                        headers=headers,
-                        ssl=False
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if attempt > 0:
-                            log.success(f"第 {attempt} 次重试成功")
-                            SEND_FAILED_DICT["success"] += 1
-                        log.debug(f"请求成功: {method} {url}, 响应: {data}")
-                        return data
-                    else:
-                        error_text = await response.text()
-                        log.error(f"请求失败: {method} {url}, 状态码: {response.status}, 错误信息: {error_text}")
-                        log.debug(f"payload: {json.dumps(payload, ensure_ascii=False)[:300]}")
-                        if response.status == 400:
-                            err_data = await response.json()
-                            if err_data.get("err_code") == 40054017:
-                                await call_open_api("POST", endpoint, {"content": f"消息发送错误：{err_data.get('message')}\ntraceID:{err_data.get('trace_id')}", "msg_type": 0, "msg_id": payload["msg_id"],"msg_seq": await get_next_msg_seq(payload["msg_id"])}, sleepy=False)
-                            elif err_data.get("err_code") == 40054005:
-                                payload["msg_seq"] = await get_next_msg_seq(payload["msg_id"])
-                            elif err_data.get("err_code") in [40034101, 40054002]: # 机器人非群成员/被禁言
-                                SEND_FAILED_DICT["success"] += 1
-                                break
-                        if attempt < retries - 1:
-                            await asyncio.sleep(1)
-                            log.warning(f"第 {attempt + 1} 次重试...")
-                            continue
-                        else:
-                            SEND_FAILED_DICT["failed"] += 1
-                            raise HTTPException(status_code=response.status, detail=error_text)
-            except Exception as e:
-                log.warning(f"网络请求异常: {e}")
-                if attempt < retries - 1:
-                    await asyncio.sleep(1)
-                    log.warning(f"第 {attempt + 1} 次重试...")
-                    continue
+    session = await get_http_session()
+    retries = 3
+    for attempt in range(retries):
+        try:
+            log.debug(f"正在请求: {method} {url}, Headers: {headers}, Body: {payload}")
+            async with session.request(
+                    method=method,
+                    url=url,
+                    json=payload,
+                    headers=headers,
+                    ssl=False
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if attempt > 0:
+                        log.success(f"第 {attempt} 次重试成功")
+                        SEND_FAILED_DICT["success"] += 1
+                    log.debug(f"请求成功: {method} {url}, 响应: {data}")
+                    return data
                 else:
-                    raise HTTPException(status_code=503, detail=f"请求OpenAPI时出现异常: {e}")
+                    error_text = await response.text()
+                    log.error(f"请求失败: {method} {url}, 状态码: {response.status}, 错误信息: {error_text}")
+                    log.debug(f"payload: {json.dumps(payload, ensure_ascii=False)[:300]}")
+                    
+                    if response.status == 400:
+                        err_data = await response.json()
+                        err_code = err_data.get("err_code")
+                        
+                        # 处理其他特殊错误码
+                        if err_code == 40054017:
+                            await call_open_api("POST", endpoint, {"content": f"消息发送错误：{err_data.get('message')}\ntraceID:{err_data.get('trace_id')}", "msg_type": 0, "msg_id": payload["msg_id"],"msg_seq": await get_next_msg_seq(payload["msg_id"])}, sleepy=False)
+                        elif err_code == 40054005:
+                            payload["msg_seq"] = await get_next_msg_seq(payload["msg_id"])
+                        elif err_code in [40034101, 40054002]: # 机器人非群成员/被禁言
+                            SEND_FAILED_DICT["success"] += 1
+                            break
+                    
+                    # 决定是否重试
+                    if attempt < retries - 1:
+                        await asyncio.sleep(1)
+                        log.warning(f"第 {attempt + 1} 次重试...")
+                        continue
+                    else:
+                        SEND_FAILED_DICT["failed"] += 1
+                        raise HTTPException(status_code=response.status, detail=error_text)
+        except Exception as e:
+            log.warning(f"网络请求异常: {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(1)
+                log.warning(f"第 {attempt + 1} 次重试...")
+                continue
+            else:
+                raise HTTPException(status_code=503, detail=f"请求OpenAPI时出现异常: {e}")
 
 # 添加一个新的ID生成器类
 class IncrementalIDGenerator:
@@ -143,23 +179,23 @@ async def verify_image_url(url: str, timeout: float = 3.0) -> bool:
         bool: URL 有效返回 True，否则返回 False
     """
     try:
-        async with aiohttp.ClientSession() as session:
-            # 使用 GET 请求，因为有些服务器不支持 HEAD 请求
-            async with session.get(url, ssl=False, timeout=aiohttp.ClientTimeout(total=timeout), allow_redirects=True) as response:
-                # 2xx 状态码认为是有效的
-                if 200 <= response.status < 300:
-                    # 检查 Content-Type 是否为图片类型
-                    content_type = response.headers.get('Content-Type', '')
-                    if content_type.startswith('image/'):
-                        # 只读取少量字节验证即可，不需要下载完整文件
-                        await response.content.read(1024)
-                        return True
-                    else:
-                        log.warning(f"URL 返回的 Content-Type 不是图片: {content_type}")
-                        return False
+        session = await get_http_session()
+        # 使用 GET 请求，因为有些服务器不支持 HEAD 请求
+        async with session.get(url, ssl=False, timeout=aiohttp.ClientTimeout(total=timeout), allow_redirects=True) as response:
+            # 2xx 状态码认为是有效的
+            if 200 <= response.status < 400:
+                # 检查 Content-Type 是否为图片类型
+                content_type = response.headers.get('Content-Type', '')
+                if content_type.startswith('image/'):
+                    # 只读取少量字节验证即可，不需要下载完整文件
+                    await response.content.read(1024)
+                    return True
                 else:
-                    log.warning(f"URL 校验失败，状态码: {response.status}")
+                    log.warning(f"URL 返回的 Content-Type 不是图片: {content_type}")
                     return False
+            else:
+                log.warning(f"URL 校验失败，状态码: {response.status}")
+                return False
     except asyncio.TimeoutError:
         log.warning(f"URL 校验超时: {url}")
         return False
@@ -208,29 +244,29 @@ async def post_guild_image(data):
         name="msg_id",
         value="1029"
     )
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post(url, headers=headers, data=form, ssl=False, timeout=10.0) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    log.debug(f"图片上传成功: {data}")
-                    md5_hash = hashlib.md5(image_data).hexdigest().upper()
-                    image_url = f"https://gchat.qpic.cn/qmeetpic/0/0-0-{md5_hash}/0"
-                    # 验证生成的图片 URL 是否有效
-                    is_valid = await verify_image_url(image_url)
-                    if is_valid:
-                        log.success(f"图片上传成功: {image_url}")
-                        return {"url": image_url}
-                    else:
-                        log.error(f"图片 URL 验证失败: {image_url}")
-                        return {"error": "图片上传成功但 URL 验证失败"}
+    session = await get_http_session()
+    try:
+        async with session.post(url, headers=headers, data=form, ssl=False, timeout=10.0) as response:
+            if response.status == 200:
+                data = await response.json()
+                log.debug(f"图片上传成功: {data}")
+                md5_hash = hashlib.md5(image_data).hexdigest().upper()
+                image_url = f"https://gchat.qpic.cn/qmeetpic/0/0-0-{md5_hash}/0"
+                # 验证生成的图片 URL 是否有效
+                is_valid = await verify_image_url(image_url)
+                if is_valid:
+                    log.success(f"图片上传成功: {image_url}")
+                    return {"url": image_url}
                 else:
-                    text = await response.text()
-                    log.error(f"Image uploaded failed: {text}")
-                    return {"error": text}
-        except Exception as e:
-            log.error(f"Image uploaded failed: {e}")
-            return {"error": f"Upload failed: {e}"}
+                    log.error(f"图片 URL 验证失败: {image_url}")
+                    return {"error": "图片上传成功但 URL 验证失败"}
+            else:
+                text = await response.text()
+                log.error(f"Image uploaded failed: {text}")
+                return {"error": text}
+    except Exception as e:
+        log.error(f"Image uploaded failed: {e}")
+        return {"error": f"Upload failed: {e}"}
 
 
 async def post_floodgate_message(msg, d):

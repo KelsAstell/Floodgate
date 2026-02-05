@@ -12,12 +12,12 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id, reset_usage_today
+from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id, reset_usage_today, close_db_pool
 from openapi.encrypt import verifier
 from openapi.inner_cmd import parse_floodgate_cmd
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add
 from openapi.token_manage import token_manager
-from openapi.network import post_im_message, delete_im_message, post_guild_image, post_floodgate_message
+from openapi.network import post_im_message, delete_im_message, post_guild_image, post_floodgate_message, close_http_session
 from openapi.tool import check_config, get_health, get_maintaining_message, show_welcome, rate_limit
 from config import *
 
@@ -58,6 +58,8 @@ async def lifespan(app: FastAPI):
     log.success(f"Floodgate已启动，耗时: {end_time - start_time:.2f} 秒")
     yield
     scheduler.shutdown()
+    await close_http_session()  # 关闭全局 HTTP Session
+    await close_db_pool()  # 关闭数据库连接池
 
 
 app = FastAPI(lifespan=lifespan)
@@ -106,13 +108,16 @@ async def openapi_webhook(request: Request):
             await post_floodgate_message(await get_maintaining_message(), d)
             log.warning(f"没有已连接的客户端，当前处于维护模式！")
             return {"status": "maintaining", "op": op}
+        
+        async def send_to_client(client, data):
+            try:
+                await client.send_json(data)
+                log.debug(f"[WebSocket] 发送 WebSocket 消息成功")
+            except Exception as e:
+                log.error(f"发送 WebSocket 消息失败: {e}")
+        
         async with connected_clients_lock:
-            for client in connected_clients:
-                try:
-                    data = await client.send_json(ob_data)
-                    log.debug(f"[WebSocket] 发送 WebSocket 消息成功: {data}")
-                except Exception as e:
-                    log.error(f"发送 WebSocket 消息失败: {e}")
+            await asyncio.gather(*[send_to_client(c, ob_data) for c in connected_clients])
     return {"status": "ignored", "op": op}
 
 
@@ -169,7 +174,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json({"status": "failed", "retcode": 10001, "msg": "Unsupported action"})
             except Exception as e:
                 log.error(f"[WebSocket] 处理消息出错: {e}")
-                #log.error(f"[Ob11 Request] : {json.loads(raw_data)}")
+                log.error(f"[Ob11 Request] : {json.loads(raw_data)}")
                 await websocket.send_json(
                     {"status": "failed", "retcode": 10002, "msg": f"Error parsing or processing request: {e}"})
     except Exception as e:
