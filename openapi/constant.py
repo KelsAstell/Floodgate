@@ -52,7 +52,8 @@ ACHIEVEMENT_IDMAP = {
     33: "82/820265", # 骰子
     34: "0/1007", # 毒马铃薯
     35: "71/713436", # 塔罗牌
-    36: "71/713436" # 塔罗牌
+    36: "71/713436", # 塔罗牌
+    37: "23/235983" # 福瑞巨星
 }
 ACHIEVEMENT_DATA = {
     1:{"id": 1,"title":"时神的礼物","description":"使用超级丝瓜卡", "rarity":"epic"},
@@ -89,6 +90,7 @@ ACHIEVEMENT_DATA = {
     32:{"id": 32,"title":"欧鳇寿命极长","description":"超级丝瓜卡小游戏获得1000呆毛", "rarity":"epic"},
     33:{"id": 33,"title":"饱和式投掷","description":"单次消耗狼狼骰/金狼狼骰超过24个", "rarity":"epic","mask":True},
     34:{"id": 34,"title":"必要的挫折","description":"升级土豆时出现大失败", "rarity":"epic","mask":True},
-    35:{"id": 35,"title":"金色传说","description":"获得福瑞签镀膜卡片", "rarity":"common"},
-    36:{"id": 36,"title":"珍视之人","description":"获得福瑞签超级隐藏卡片", "rarity":"epic","mask":True}
+    35: {"id": 35,"title":"金色传说","description":"获得福瑞签镀膜卡片", "rarity":"common"},
+    36: {"id": 36,"title":"珍视之人","description":"获得福瑞签超级隐藏卡片", "rarity":"epic","mask":True},
+    37: {"id": 37,"title":"福瑞巨星","description":"获得任一年度福瑞巨星的超大奖", "rarity":"epic"}
 }
