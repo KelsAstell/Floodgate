@@ -50,3 +50,8 @@ from loguru import logger as log                            # 不要删，会让
 SEQ_CACHE_SIZE = 300                                        # 消息队列缓存大小，如果你的BOT涉及到一个事件多次回复，可能需要调的很大，如果没有这样的需求，300足矣
 STAT_LOG = "logs/usage_summary.json"                        # 保存你的DAU和DAI记录
 STAT_LOG_MAX_DAYS = 7                                       # DAU和DAI的最长保存期限，单位为天
+
+#—————————————————OAuth配置（用于第三方客户端登录）——————————————————#
+OAUTH_LOGIN_TOKEN_TTL = 60                                 # 登录令牌有效期（秒），默认5分钟
+OAUTH_JWT_EXPIRY_DAYS = 15                                  # JWT有效期（天），默认15天
+OAUTH_LOGIN_TOKEN_LENGTH = 16                               # 登录令牌长度（字符），建议 >= 16

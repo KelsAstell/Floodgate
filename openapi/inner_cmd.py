@@ -1,7 +1,7 @@
 import re
 import time
 
-from config import BOT_NAME, TRANSPARENT_OPENID, ACHIEVEMENT_PERSIST
+from config import BOT_NAME, TRANSPARENT_OPENID, ACHIEVEMENT_PERSIST, OAUTH_LOGIN_TOKEN_TTL
 from openapi.database import get_dau_today, get_achievement_list, get_or_create_digit_id
 from openapi.draw_ach import generate_achievement_page_image
 from openapi.network import post_floodgate_message, post_im_message, post_floodgate_rich_message
@@ -58,3 +58,16 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
         user_achievements = await get_achievement_list(str(user_id)) if ACHIEVEMENT_PERSIST else []
         base64_img = await generate_achievement_page_image(user_achievements, page=page)
         return await post_floodgate_rich_message(f"命令：~成就 x 可查看指定的页\n例如：\n~成就 2", base64_img, d)
+    elif cmd.startswith("login"):
+        # 安全性限制：仅允许在私聊环境执行
+        group_openid = d.get("group_openid") or d.get("channel_id")
+        if group_openid:
+            return await post_floodgate_message("为保护您的安全，请在私聊中使用 ~login 命令", d)
+        
+        from openapi.oauth import oauth_manager
+        user_openid = d.get("author", {}).get("union_openid")
+        if not user_openid:
+            return await post_floodgate_message("无法获取用户身份，请稍后重试", d)
+        token = oauth_manager.generate_login_token(user_openid)
+        msg = f"您的登录令牌为：{token}\n有效期{OAUTH_LOGIN_TOKEN_TTL}秒，请勿泄露。"
+        return await post_floodgate_message(msg, d)
