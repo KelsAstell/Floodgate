@@ -17,7 +17,7 @@ from fastapi.responses import StreamingResponse
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id, get_or_create_digit_id, reset_usage_today, close_db_pool
+from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id, get_or_create_digit_id, reset_usage_today, close_db_pool, add_achievement, get_achievement_list, get_achievement_stat
 from openapi.encrypt import verifier
 from openapi.inner_cmd import parse_floodgate_cmd
 from openapi.oauth import oauth_manager
@@ -254,24 +254,38 @@ async def websocket_endpoint(websocket: WebSocket):
                         # 处理消息中的 record 类型（silk 语音）
                         processed_message = await process_oauth_message(message)
                         
-                        # 为该条消息生成唯一 message_id，并写入缓存
-                        message_id = str(uuid.uuid4())
-                        oauth_message_cache[message_id] = {
-                            "user_id": user_id,
-                            "event": processed_message,
-                        }
+                        # 检查消息中是否包含成就段，若用户已获得则丢弃（避免重复推送）
+                        msg_segments = processed_message.get("params", {}).get("message", [])
+                        should_discard = False
+                        for seg in msg_segments:
+                            if seg.get("type") == "achievement":
+                                ach_id = seg.get("data", {}).get("id")
+                                if ach_id is not None:
+                                    is_new = await add_achievement(str(user_id), ach_id)
+                                    if not is_new:
+                                        log.info(f"[OAuth Response] 用户已获得成就 {ach_id}，丢弃重复成就消息，user_id={user_id}")
+                                        should_discard = True
+                                        break
                         
-                        async with oauth_response_queues_lock:
-                            if user_id in oauth_response_queues:
-                                # 将 message_id 放入该用户的队列
-                                queue_size = oauth_response_queues[user_id].qsize()
-                                await oauth_response_queues[user_id].put({
-                                    "type": "message_ref",
-                                    "message_id": message_id,
-                                })
-                                #log.success(f"[OAuth Response] 响应消息已入队，user_id={user_id}, 队列大小={queue_size + 1}")
-                            else:
-                                log.warning(f"[OAuth Response] 用户未建立 SSE 连接，消息被丢弃，user_id={user_id}")
+                        if not should_discard:
+                            # 为该条消息生成唯一 message_id，并写入缓存
+                            message_id = str(uuid.uuid4())
+                            oauth_message_cache[message_id] = {
+                                "user_id": user_id,
+                                "event": processed_message,
+                            }
+                            
+                            async with oauth_response_queues_lock:
+                                if user_id in oauth_response_queues:
+                                    # 将 message_id 放入该用户的队列
+                                    queue_size = oauth_response_queues[user_id].qsize()
+                                    await oauth_response_queues[user_id].put({
+                                        "type": "message_ref",
+                                        "message_id": message_id,
+                                    })
+                                    #log.success(f"[OAuth Response] 响应消息已入队，user_id={user_id}, 队列大小={queue_size + 1}")
+                                else:
+                                    log.warning(f"[OAuth Response] 用户未建立 SSE 连接，消息被丢弃，user_id={user_id}")
                         
                         # OAuth 响应不发送到 OpenAPI，但要回复 WebSocket 客户端
                         ws_response = {"status": "ok", "retcode": 0, "data": {"message_id": "oauth_handled"}, "echo": echo}
@@ -339,6 +353,21 @@ async def user_stats(request: UserStatsRequest):
 @app.get(f"{WEBHOOK_ENDPOINT}/health")
 async def health_check():
     return await get_health(start_time,connected_clients)
+
+
+@app.get(f"{WEBHOOK_ENDPOINT}/achievements")
+async def achievements(uid: int):
+    if not ACHIEVEMENT_PERSIST:
+        raise HTTPException(status_code=503, detail="Achievement system is disabled")
+    achievement_ids = await get_achievement_list(str(uid))
+    return {"uid": uid, "achievements": achievement_ids}
+
+
+@app.get(f"{WEBHOOK_ENDPOINT}/achievement_stat")
+async def achievement_stat():
+    if not ACHIEVEMENT_PERSIST:
+        raise HTTPException(status_code=503, detail="Achievement system is disabled")
+    return await get_achievement_stat()
 
 
 @app.get("/avatar")
@@ -779,4 +808,15 @@ if __name__ == "__main__":
     ctypes.windll.kernel32.SetConsoleTitleW(f"Floodgate {VERSION}" if not CUSTOM_TITLE else CUSTOM_TITLE)
     asyncio.run(check_config())
     asyncio.run(show_welcome())
+    # 缩短 oauth_content 的 uvicorn access log（去掉 URL 中的 message_id 参数）
+    import logging
+    class _ShortenOAuthContentLog(logging.Filter):
+        def filter(self, record):
+            if record.args and 'oauth_content' in record.getMessage():
+                record.args = tuple(
+                    arg.split('?')[0] if isinstance(arg, str) and 'oauth_content?' in arg else arg
+                    for arg in record.args
+                )
+            return True
+    logging.getLogger("uvicorn.access").addFilter(_ShortenOAuthContentLog())
     uvicorn.run(app, host="0.0.0.0", port=PORT)

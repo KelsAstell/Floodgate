@@ -169,6 +169,35 @@ async def get_achievement_list(user_id: str):
         except json.JSONDecodeError:
             return []
 
+
+@cached(ttl=1800, cache=Cache.MEMORY)
+async def get_achievement_stat() -> dict:
+    """统计每个成就被多少比例的用户获得，缓存30分钟"""
+    async with pool.connection() as db:
+        cursor = await db.execute('SELECT achievement FROM achievement')
+        rows = await cursor.fetchall()
+
+    total_users = len(rows)
+    if total_users == 0:
+        return {"total_users": 0, "stats": {}}
+
+    count_map = defaultdict(int)
+    for row in rows:
+        try:
+            achievement_list = json.loads(row[0]) if row[0] else []
+            if not isinstance(achievement_list, list):
+                continue
+            for ach_id in achievement_list:
+                count_map[int(ach_id)] += 1
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+    stats = {
+        str(ach_id): round(count / total_users * 100, 2)
+        for ach_id, count in sorted(count_map.items())
+    }
+    return {"total_users": total_users, "stats": stats}
+
 async def batch_insert_idmap_from_json(ids_path):
     import base64
     import json
