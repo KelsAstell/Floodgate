@@ -7,7 +7,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 import asyncio
 from config import MIGRATE_IDS, log, TRANSPARENT_OPENID, IDMAP_INITIAL_ID, IDMAP_TTL, STAT_LOG, STAT_LOG_MAX_DAYS, \
-    ACHIEVEMENT_PERSIST
+    ACHIEVEMENT_PERSIST, USER_AGREEMENT_REQUIRED, USER_AGREEMENT_VERSION
 
 DB_NAME = 'storage.db'
 POOL_SIZE = 10
@@ -56,12 +56,21 @@ pool = ConnectionPool(DB_NAME, POOL_SIZE)
 
 async def init_db():
     if os.path.exists(DB_NAME):
-        if ACHIEVEMENT_PERSIST:
-            async with aiosqlite.connect(DB_NAME) as db:
+        async with aiosqlite.connect(DB_NAME) as db:
+            if ACHIEVEMENT_PERSIST:
                 await db.execute('''
                 CREATE TABLE IF NOT EXISTS achievement (
                     id TEXT PRIMARY KEY,
                     achievement TEXT
+                )
+            ''')
+            # 用户协议同意表
+            if USER_AGREEMENT_REQUIRED:
+                await db.execute('''
+                CREATE TABLE IF NOT EXISTS user_agreement (
+                    user_id TEXT PRIMARY KEY,
+                    agreed_version TEXT NOT NULL,
+                    agreed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
         await pool.init()  # 初始化连接池
@@ -99,6 +108,15 @@ async def init_db():
                     usage_today INTEGER DEFAULT 0
                 ) WITHOUT ROWID
             ''')
+        # 用户协议同意表
+        if USER_AGREEMENT_REQUIRED:
+            await db.execute('''
+            CREATE TABLE IF NOT EXISTS user_agreement (
+                user_id TEXT PRIMARY KEY,
+                agreed_version TEXT NOT NULL,
+                agreed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         await db.commit()
     log.success("数据库创建成功")
     ids_path = os.path.join(os.getcwd(), "ids.json")
@@ -362,4 +380,98 @@ async def get_usage_count(id) -> int:
             async with db.execute('SELECT usage_cnt FROM usage WHERE digit_id=?', (id,)) as cursor:
                 row = await cursor.fetchone()
                 return row[0] if row else 0
+
+
+# ==================== 用户协议同意相关操作 ====================
+
+# 用户协议缓存 TTL（秒）
+USER_AGREEMENT_CACHE_TTL = 1800  # 30分钟
+
+@cached(ttl=USER_AGREEMENT_CACHE_TTL, cache=Cache.MEMORY)
+async def check_user_agreement(user_id: str, required_version: str) -> bool:
+    """
+    检查用户是否已同意指定版本的协议
+    
+    Args:
+        user_id: 用户ID
+        required_version: 要求的协议版本
+        
+    Returns:
+        bool: 是否已同意该版本协议
+    """
+    if not USER_AGREEMENT_REQUIRED:
+        return True
+    
+    async with pool.connection() as db:
+        async with db.execute(
+            'SELECT agreed_version FROM user_agreement WHERE user_id = ?', (str(user_id),)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return False
+            # 检查版本是否匹配（要求完全匹配）
+            return row[0] == required_version
+
+
+async def set_user_agreement(user_id: str, version: str) -> bool:
+    """
+    设置用户同意协议
+    
+    Args:
+        user_id: 用户ID
+        version: 协议版本
+        
+    Returns:
+        bool: 是否设置成功
+    """
+    if not USER_AGREEMENT_REQUIRED:
+        return True
+    
+    try:
+        async with pool.connection() as db:
+            await db.execute(
+                '''INSERT INTO user_agreement (user_id, agreed_version, agreed_at) 
+                   VALUES (?, ?, CURRENT_TIMESTAMP)
+                   ON CONFLICT(user_id) DO UPDATE SET 
+                   agreed_version = ?, agreed_at = CURRENT_TIMESTAMP''',
+                (str(user_id), version, version)
+            )
+            await db.commit()
+            
+            # 清除该用户的协议缓存（针对所有可能的版本要求）
+            cache = Cache(Cache.MEMORY)
+            cache_key = f"check_user_agreement:{str(user_id)}:{USER_AGREEMENT_VERSION}"
+            await cache.delete(cache_key)
+            
+            return True
+    except Exception as e:
+        log.error(f"设置用户协议同意状态失败: {e}")
+        return False
+
+
+async def get_user_agreement_status(user_id: str) -> dict:
+    """
+    获取用户协议同意状态
+    
+    Args:
+        user_id: 用户ID
+        
+    Returns:
+        dict: 包含 agreed_version 和 agreed_at 的字典，未同意则返回空值
+    """
+    if not USER_AGREEMENT_REQUIRED:
+        return {"agreed": True, "version": None, "agreed_at": None}
+    
+    async with pool.connection() as db:
+        async with db.execute(
+            'SELECT agreed_version, agreed_at FROM user_agreement WHERE user_id = ?', (str(user_id),)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    "agreed": True,
+                    "version": row[0],
+                    "agreed_at": row[1]
+                }
+            return {"agreed": False, "version": None, "agreed_at": None}
 

@@ -17,11 +17,11 @@ from fastapi.responses import StreamingResponse
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id, get_or_create_digit_id, reset_usage_today, close_db_pool, add_achievement, get_achievement_list, get_achievement_stat
+from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id, get_or_create_digit_id, reset_usage_today, close_db_pool, add_achievement, get_achievement_list, get_achievement_stat, check_user_agreement, set_user_agreement, get_user_agreement_status
 from openapi.encrypt import verifier
 from openapi.inner_cmd import parse_floodgate_cmd
 from openapi.oauth import oauth_manager
-from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add
+from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add, parse_group_del, parse_group_msg_receive, parse_group_msg_reject
 from openapi.token_manage import token_manager
 from openapi.network import post_im_message, delete_im_message, post_guild_image, post_floodgate_message, close_http_session
 from openapi.tool import check_config, get_health, get_maintaining_message, show_welcome, rate_limit
@@ -172,7 +172,45 @@ async def openapi_webhook(request: Request):
             raise HTTPException(status_code=401, detail="Invalid Signature")
         t = payload.get("t")
         if t == "GROUP_ADD_ROBOT":
+            group_openid = d.get("group_openid", "unknown")
+            op_openid = d.get("op_member_openid", "unknown")
+            if not TRANSPARENT_OPENID:
+                group_id = await get_or_create_digit_id(group_openid)
+                op_id = await get_or_create_digit_id(op_openid)
+                log.success(f"机器人被添加到群聊，群: {group_id}，操作者: {op_id}")
+            else:
+                log.success(f"机器人被添加到群聊，群: {group_openid}，操作者: {op_openid}")
             ob_data = await parse_group_add(d)
+        elif t == "GROUP_DEL_ROBOT":
+            group_openid = d.get("group_openid", "unknown")
+            op_openid = d.get("op_member_openid", "unknown")
+            if not TRANSPARENT_OPENID:
+                group_id = await get_or_create_digit_id(group_openid)
+                op_id = await get_or_create_digit_id(op_openid)
+                log.success(f"机器人被移出群聊，群: {group_id}，操作者: {op_id}")
+            else:
+                log.success(f"机器人被移出群聊，群: {group_openid}，操作者: {op_openid}")
+            ob_data = await parse_group_del(d)
+        elif t == "GROUP_MSG_RECEIVE":
+            group_openid = d.get("group_openid", "unknown")
+            op_openid = d.get("op_member_openid", "unknown")
+            if not TRANSPARENT_OPENID:
+                group_id = await get_or_create_digit_id(group_openid)
+                op_id = await get_or_create_digit_id(op_openid)
+                log.success(f"群消息接受推送，群: {group_id}，操作者: {op_id}")
+            else:
+                log.success(f"群消息接受推送，群: {group_openid}，操作者: {op_openid}")
+            ob_data = await parse_group_msg_receive(d)
+        elif t == "GROUP_MSG_REJECT":
+            group_openid = d.get("group_openid", "unknown")
+            op_openid = d.get("op_member_openid", "unknown")
+            if not TRANSPARENT_OPENID:
+                group_id = await get_or_create_digit_id(group_openid)
+                op_id = await get_or_create_digit_id(op_openid)
+                log.success(f"群消息拒绝推送，群: {group_id}，操作者: {op_id}")
+            else:
+                log.success(f"群消息拒绝推送，群: {group_openid}，操作者: {op_openid}")
+            ob_data = await parse_group_msg_reject(d)
         elif t in ["GROUP_AT_MESSAGE_CREATE", "C2C_MESSAGE_CREATE","AT_MESSAGE_CREATE"]:
             if RATE_LIMIT:
                 is_rate_limit = await rate_limit(d)
@@ -180,6 +218,43 @@ async def openapi_webhook(request: Request):
                     return {"status": "rate_limit", "op": op}
             global CURRENT_MSG_ID
             await parse_floodgate_cmd(start_time,connected_clients,payload,request.headers)
+            
+            # 解析消息内容
+            content_str = d.get("content", "").strip()
+            if payload.get("channel_id"):
+                import re
+                content_str = re.sub(r'<@![0-9A-Za-z]+>', '', content_str).strip()
+            
+            # 获取用户ID
+            user_open_id = d.get("author", {}).get("union_openid")
+            if not TRANSPARENT_OPENID:
+                user_id = await get_or_create_digit_id(user_open_id)
+            else:
+                user_id = user_open_id
+            
+            # 检查是否为"同意"命令
+            is_agree_msg = content_str == "同意" or content_str.startswith("/agree")
+            
+            # 处理同意协议命令
+            if is_agree_msg and USER_AGREEMENT_REQUIRED:
+                success = await set_user_agreement(user_id, USER_AGREEMENT_VERSION)
+                if success:
+                    log.info(f"[OpenAPI Message] 用户已通过'同意'命令同意协议，user_id={user_id}, version={USER_AGREEMENT_VERSION}")
+                    response_msg = f"✅ 感谢您同意用户协议（版本：{USER_AGREEMENT_VERSION}），现在可以正常使用所有功能。"
+                else:
+                    log.error(f"[OpenAPI Message] 用户同意协议失败，user_id={user_id}")
+                    response_msg = "❌ 同意协议失败，请稍后重试。"
+                await post_im_message(user_id, d.get("group_openid"), {"type": "text", "text": response_msg})
+                return {"status": "agreement_handled", "op": op}
+            
+            # 检查用户是否已同意协议（如果不是同意命令）
+            if USER_AGREEMENT_REQUIRED:
+                has_agreed = await check_user_agreement(user_id, USER_AGREEMENT_VERSION)
+                if not has_agreed:
+                    log.warning(f"[OpenAPI Message] 用户未同意协议，阻断消息，user_id={user_id}")
+                    await post_im_message(user_id, d.get("group_openid"), {"type": "text", "text": USER_AGREEMENT_MESSAGE})
+                    return {"status": "agreement_required", "op": op}
+            
             ob_data = await parse_open_message_event(CURRENT_MSG_ID, d)
             if not ob_data:
                 log.info("平台推送事件消息已去重")
@@ -455,17 +530,85 @@ async def oauth_command(request: OAuthCommandRequest, authorization: Optional[st
     
     log.info(f"[OAuth Command] 原始消息文本: {raw_message}")
     
-    # 检查是否为内部命令（以 ~ 开头）
-    if raw_message.strip().startswith("~"):
+    # 检查是否为同意协议命令（"同意" 或 "/agree"），该命令不受协议检查限制
+    stripped_msg = raw_message.strip()
+    is_agree_cmd = stripped_msg == "同意" or stripped_msg.startswith("/agree")
+    
+    # 检查用户是否已同意协议（如果启用），但同意命令除外
+    if USER_AGREEMENT_REQUIRED and not is_agree_cmd:
+        has_agreed = await check_user_agreement(user_id, USER_AGREEMENT_VERSION)
+        if not has_agreed:
+            log.warning(f"[OAuth Command] 用户未同意协议，阻断命令，user_id={user_id}")
+            # 推送协议提示消息到 SSE
+            async with oauth_response_queues_lock:
+                if user_id in oauth_response_queues:
+                    event = {
+                        "action": "send_msg",
+                        "params": {
+                            "message": [
+                                {"type": "text", "data": {"text": USER_AGREEMENT_MESSAGE}}
+                            ]
+                        }
+                    }
+                    message_id = str(uuid.uuid4())
+                    oauth_message_cache[message_id] = {
+                        "user_id": user_id,
+                        "event": event,
+                    }
+                    await oauth_response_queues[user_id].put({
+                        "type": "message_ref",
+                        "message_id": message_id,
+                    })
+            return {
+                "status": "agreement_required",
+                "retcode": 10003,
+                "msg": USER_AGREEMENT_MESSAGE,
+                "echo": request.echo
+            }
+    
+    # 构造 OneBot 消息事件
+    raw_message = request.params.get("message", "")
+    if isinstance(raw_message, list):
+        # 提取纯文本
+        raw_message = "".join(
+            seg.get("data", {}).get("text", "") 
+            for seg in raw_message 
+            if seg.get("type") == "text"
+        )
+    
+    log.info(f"[OAuth Command] 原始消息文本: {raw_message}")
+    
+    # 检查是否为内部命令（以 ~ 开头）或同意协议命令
+    stripped_msg = raw_message.strip()
+    is_internal_cmd = stripped_msg.startswith("~")
+    is_agree_internal_cmd = stripped_msg == "同意" or stripped_msg.startswith("/agree")
+    
+    if is_internal_cmd or is_agree_internal_cmd:
         log.info(f"[OAuth Command] 检测到内部命令: {raw_message}")
         
         # 处理内部命令并直接通过 SSE 推送响应
         try:
-            cmd = raw_message.strip()[1:]  # 移除 ~ 前缀
+            if is_agree_internal_cmd:
+                # 同意命令不移除前缀，直接处理
+                cmd = stripped_msg
+            else:
+                cmd = stripped_msg[1:]  # 移除 ~ 前缀
             response_text = None
             
+            # 同意命令 - 同意用户协议（支持 "同意" 或 "/agree"）
+            if cmd == "同意" or cmd.startswith("/agree"):
+                if not USER_AGREEMENT_REQUIRED:
+                    response_text = "当前未启用用户协议功能。"
+                else:
+                    success = await set_user_agreement(user_id, USER_AGREEMENT_VERSION)
+                    if success:
+                        log.info(f"[OAuth Command] 用户已通过同意命令同意协议，user_id={user_id}, version={USER_AGREEMENT_VERSION}")
+                        response_text = f"✅ 感谢您同意用户协议（版本：{USER_AGREEMENT_VERSION}），现在可以正常使用所有功能。"
+                    else:
+                        response_text = "❌ 同意协议失败，请稍后重试。"
+            
             # health 命令
-            if cmd.startswith("health"):
+            elif cmd.startswith("health"):
                 from openapi.tool import get_health
                 data = await get_health(start_time, connected_clients)
                 cache = data.get('cache')
@@ -797,6 +940,7 @@ async def oauth_stream(authorization: Optional[str] = Header(None), request: Req
             "Transfer-Encoding": "chunked"  # 显式声明分块传输
         }
     )
+
 
 start_time = time.time()
 CURRENT_MSG_ID = 0

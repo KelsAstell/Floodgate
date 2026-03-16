@@ -55,3 +55,8 @@ STAT_LOG_MAX_DAYS = 7                                       # DAU和DAI的最长
 OAUTH_LOGIN_TOKEN_TTL = 60                                 # 登录令牌有效期（秒），默认5分钟
 OAUTH_JWT_EXPIRY_DAYS = 15                                  # JWT有效期（天），默认15天
 OAUTH_LOGIN_TOKEN_LENGTH = 16                               # 登录令牌长度（字符），建议 >= 16
+
+#—————————————————用户协议配置——————————————————#
+USER_AGREEMENT_REQUIRED = False                             # 是否启用用户协议同意功能，启用后用户必须同意协议才能使用命令
+USER_AGREEMENT_VERSION = "1.0"                              # 当前协议版本，修改此值会要求所有用户重新同意
+USER_AGREEMENT_MESSAGE = "您尚未同意用户协议，请使用 /agree 命令同意协议后继续使用。"  # 未同意协议时的提示消息
