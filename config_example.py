@@ -60,3 +60,6 @@ OAUTH_LOGIN_TOKEN_LENGTH = 16                               # 登录令牌长度
 USER_AGREEMENT_REQUIRED = False                             # 是否启用用户协议同意功能，启用后用户必须同意协议才能使用命令
 USER_AGREEMENT_VERSION = "1.0"                              # 当前协议版本，修改此值会要求所有用户重新同意
 USER_AGREEMENT_MESSAGE = "您尚未同意用户协议，请使用 /agree 命令同意协议后继续使用。"  # 未同意协议时的提示消息
+
+#—————————————————群聊事件配置——————————————————#
+CUSTOM_COMMAND_ON_REMOVE = ""                               # 机器人被移出群聊时发送的自定义命令，为空字符串时发送原样 notice 事件，比如可以发送一个隐藏的/ban命令给对应用户，实现踢出机器人自动封禁

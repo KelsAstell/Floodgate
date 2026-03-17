@@ -2,7 +2,7 @@ import re
 import time
 from typing import Dict, Any, List
 
-from config import BOT_APPID, TRANSPARENT_OPENID
+from config import BOT_APPID, TRANSPARENT_OPENID, CUSTOM_COMMAND_ON_REMOVE
 from openapi.constant import face_id_dict
 from openapi.database import get_or_create_digit_id
 from anyio import Lock
@@ -217,6 +217,46 @@ async def parse_group_add(payload: dict):
 
 async def parse_group_del(payload: dict):
     """解析机器人被移出群聊事件"""
+    # 如果配置了自定义命令，则发送命令消息
+    if CUSTOM_COMMAND_ON_REMOVE:
+        timestamp = payload.get("timestamp", int(time.time()))
+        group_openid = payload.get("group_openid")
+        op_member_openid = payload.get("op_member_openid")
+
+        if not TRANSPARENT_OPENID:
+            group_id = await get_or_create_digit_id(group_openid)
+            user_id = await get_or_create_digit_id(op_member_openid)
+        else:
+            group_id = group_openid
+            user_id = op_member_openid
+
+        # 使用全局ID生成器生成连续的消息ID
+        message_id = await global_id_generator.next()
+
+        return {
+            "time": timestamp,
+            "self_id": str(BOT_APPID),
+            "post_type": "message",
+            "message_type": "group",
+            "sub_type": "normal",
+            "message_id": message_id,
+            "user_id": user_id,
+            "group_id": group_id,
+            "message": [{"type": "text", "data": {"text": CUSTOM_COMMAND_ON_REMOVE}}],
+            "raw_message": CUSTOM_COMMAND_ON_REMOVE,
+            "font": 0,
+            "sender": {
+                "user_id": user_id,
+                "nickname": "unknown",
+                "card": "",
+                "sex": "unknown",
+                "age": 0,
+                "role": "",
+                "title": ""
+            }
+        }
+
+    # 未配置自定义命令，发送原样 notice 事件
     if not TRANSPARENT_OPENID:
         return {
             "time": payload.get("timestamp"),
@@ -265,8 +305,8 @@ async def parse_group_msg_receive(payload: dict):
         "message_id": message_id,
         "user_id": user_id,
         "group_id": group_id,
-        "message": [{"type": "text", "data": {"text": "/接受推送"}}],
-        "raw_message": "/接受推送",
+        "message": [{"type": "text", "data": {"text": "/接受推送 ."}}],
+        "raw_message": "/接受推送 .",
         "font": 0,
         "sender": {
             "user_id": user_id,
@@ -305,8 +345,8 @@ async def parse_group_msg_reject(payload: dict):
         "message_id": message_id,
         "user_id": user_id,
         "group_id": group_id,
-        "message": [{"type": "text", "data": {"text": "/拒绝推送"}}],
-        "raw_message": "/拒绝推送",
+        "message": [{"type": "text", "data": {"text": "/拒绝推送 ."}}],
+        "raw_message": "/拒绝推送 .",
         "font": 0,
         "sender": {
             "user_id": user_id,
