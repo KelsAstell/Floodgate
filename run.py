@@ -225,12 +225,15 @@ async def openapi_webhook(request: Request):
                 import re
                 content_str = re.sub(r'<@![0-9A-Za-z]+>', '', content_str).strip()
             
-            # 获取用户ID
+            # 获取用户ID和群ID
             user_open_id = d.get("author", {}).get("union_openid")
+            group_openid = d.get("group_openid")
             if not TRANSPARENT_OPENID:
                 user_id = await get_or_create_digit_id(user_open_id)
+                group_id = await get_or_create_digit_id(group_openid) if group_openid else None
             else:
                 user_id = user_open_id
+                group_id = group_openid
             
             # 检查是否为"同意"命令
             is_agree_msg = content_str == "同意" or content_str.startswith("/agree")
@@ -244,7 +247,7 @@ async def openapi_webhook(request: Request):
                 else:
                     log.error(f"[OpenAPI Message] 用户同意协议失败，user_id={user_id}")
                     response_msg = "❌ 同意协议失败，请稍后重试。"
-                await post_im_message(user_id, d.get("group_openid"), {"type": "text", "text": response_msg})
+                await post_im_message(user_id, group_id, {"type": "text", "text": response_msg})
                 return {"status": "agreement_handled", "op": op}
             
             # 检查用户是否已同意协议（如果不是同意命令）
@@ -252,7 +255,7 @@ async def openapi_webhook(request: Request):
                 has_agreed = await check_user_agreement(user_id, USER_AGREEMENT_VERSION)
                 if not has_agreed:
                     log.warning(f"[OpenAPI Message] 用户未同意协议，阻断消息，user_id={user_id}")
-                    await post_im_message(user_id, d.get("group_openid"), {"type": "text", "text": USER_AGREEMENT_MESSAGE})
+                    await post_im_message(user_id, group_id, {"type": "text", "text": USER_AGREEMENT_MESSAGE})
                     return {"status": "agreement_required", "op": op}
             
             ob_data = await parse_open_message_event(CURRENT_MSG_ID, d)
