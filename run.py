@@ -4,7 +4,7 @@ import time
 import uvicorn
 import asyncio
 import uuid
-from typing import Optional, Any, List
+from typing import Any
 
 from cachetools import TTLCache
 
@@ -30,11 +30,11 @@ from config import *
 
 # OpenAPI请求体
 class WebhookPayload(BaseModel):
-    id: Optional[str] = None
+    id: str | None = None
     op: int
     d: dict
-    s: Optional[int] = None
-    t: Optional[str] = None
+    s: int | None = None
+    t: str | None = None
 
 
 # 全局变量
@@ -92,7 +92,7 @@ async def process_oauth_message(message: dict) -> dict:
             if file_path.startswith("file:///"):
                 try:
                     # 去除 file:/// 前缀
-                    local_path = file_path[8:]  # file:/// 有 8 个字符
+                    local_path = file_path.removeprefix("file:///")
                     
                     # 读取文件并转换为 base64
                     with open(local_path, "rb") as f:
@@ -266,10 +266,16 @@ async def openapi_webhook(request: Request):
         else:
             log.success(f"暂不支持的事件类型：{t}")
             return {"status": "unsupported", "op": op}
-        if not connected_clients:  # 判断是否没有已连接的客户端
+        
+        # 只有正常消息事件才触发维护通知，群事件（进群/退群/推送设置）不触发
+        message_event_types = ["GROUP_AT_MESSAGE_CREATE", "C2C_MESSAGE_CREATE", "AT_MESSAGE_CREATE"]
+        if not connected_clients and t in message_event_types:  # 判断是否没有已连接的客户端且是消息事件
             await post_floodgate_message(await get_maintaining_message(), d)
             log.warning(f"没有已连接的客户端，当前处于维护模式！")
             return {"status": "maintaining", "op": op}
+        elif not connected_clients:
+            # 群事件没有客户端连接时直接返回，不发送维护通知
+            return {"status": "no_client", "op": op}
         
         async def send_to_client(client, data):
             try:
@@ -279,7 +285,9 @@ async def openapi_webhook(request: Request):
                 log.error(f"发送 WebSocket 消息失败: {e}")
         
         async with connected_clients_lock:
-            await asyncio.gather(*[send_to_client(c, ob_data) for c in connected_clients])
+            async with asyncio.TaskGroup() as tg:
+                for c in connected_clients:
+                    tg.create_task(send_to_client(c, ob_data))
     return {"status": "ignored", "op": op}
 
 
@@ -419,7 +427,7 @@ class OAuthLoginRequest(BaseModel):
 class OAuthCommandRequest(BaseModel):
     action: str
     params: dict = {}
-    echo: Optional[Any] = None
+    echo: Any | None = None
 
 
 @app.post("/user_stats")
@@ -484,7 +492,7 @@ async def oauth_login(request: OAuthLoginRequest):
 
 # OAuth命令代理接口
 @app.post(f"{WEBHOOK_ENDPOINT}/oauth_command")
-async def oauth_command(request: OAuthCommandRequest, authorization: Optional[str] = Header(None), req: Request = None):
+async def oauth_command(request: OAuthCommandRequest, authorization: str | None = Header(None), req: Request = None):
     """使用JWT认证，将命令转发给OneBot客户端，立即返回。响应通过SSE接口获取"""
     # 打印请求信息
     client_ip = req.client.host if req and req.client else "unknown"
@@ -795,7 +803,7 @@ async def oauth_command(request: OAuthCommandRequest, authorization: Optional[st
 
 # OAuth 内容拉取接口
 @app.get(f"{WEBHOOK_ENDPOINT}/oauth_content")
-async def oauth_content(message_id: str, authorization: Optional[str] = Header(None)):
+async def oauth_content(message_id: str, authorization: str | None = Header(None)):
     """使用JWT认证，根据 message_id 拉取完整 OneBot 事件内容
 
     - 实现端到端语义：SSE 只传 message_id，真正内容通过该接口单独拉取
@@ -844,7 +852,7 @@ async def oauth_content(message_id: str, authorization: Optional[str] = Header(N
 
 # OAuth SSE 响应流接口
 @app.get(f"{WEBHOOK_ENDPOINT}/oauth_stream")
-async def oauth_stream(authorization: Optional[str] = Header(None), request: Request = None):
+async def oauth_stream(authorization: str | None = Header(None), request: Request = None):
     """使用JWT认证，建立SSE连接接收该用户的所有响应消息"""
     # 打印请求信息
     client_ip = request.client.host if request and request.client else "unknown"
@@ -898,7 +906,8 @@ async def oauth_stream(authorization: Optional[str] = Header(None), request: Req
                 try:
                     # 等待消息，超时60秒发送心跳
                     log.debug(f"[OAuth SSE] 等待消息... user_id={user_id}")
-                    message = await asyncio.wait_for(message_queue.get(), timeout=60.0)
+                    async with asyncio.timeout(60.0):
+                        message = await message_queue.get()
                     message_count += 1
                     
                     # 打印收到的消息

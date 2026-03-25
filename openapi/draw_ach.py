@@ -4,7 +4,7 @@ import hashlib
 import math
 import os
 from io import BytesIO
-from typing import Tuple
+
 
 import aiohttp
 import time
@@ -88,7 +88,7 @@ CACHE_MAXSIZE = 32
 
 # === 异步 LRU 缓存函数：返回 (timestamp, bytes) ===
 @alru_cache(maxsize=CACHE_MAXSIZE)
-async def _generate_achievement_image_raw_cached(id) -> Tuple[float, str]:
+async def _generate_achievement_image_raw_cached(id) -> tuple[float, str]:
     ach = ACHIEVEMENT_DATA.get(id, {})
     icon = await download_or_load_image(ACHIEVEMENT_IDMAP.get(ach.get("id",1), "5/59463"))
     rarity = ach.get("rarity", "common")

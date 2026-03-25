@@ -2,17 +2,17 @@ from config import *
 import aiohttp
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+
 
 
 class AccessTokenManager:
     def __init__(self):
-        self._access_token: Optional[str] = None
-        self._expires_in: Optional[datetime] = None
+        self._access_token: str | None = None
+        self._expires_in: datetime | None = None
         self.bot_info = type('BotInfo', (), {'id': str(BOT_APPID), 'secret': BOT_SECRET})
         self.auth_base_url = "https://bots.qq.com/app/getAppAccessToken"
 
-    async def get_access_token(self, only_get_token:Optional[bool] = False) -> str:
+    async def get_access_token(self, only_get_token: bool | None = False) -> str:
         if only_get_token:
             return self._access_token
         if (self._access_token is None or

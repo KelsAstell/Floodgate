@@ -1,7 +1,7 @@
 import secrets
 import string
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
+
 
 import jwt
 from cachetools import TTLCache
@@ -46,7 +46,7 @@ class OAuthManager:
         log.debug(f"[OAuth] 为用户 {union_openid[:8]}... 生成登录令牌")
         return token
     
-    def verify_login_token(self, token: str) -> Optional[str]:
+    def verify_login_token(self, token: str) -> str | None:
         """验证并消费登录令牌（一次性使用）
         
         Args:
@@ -62,7 +62,7 @@ class OAuthManager:
             log.warning(f"[OAuth] 登录令牌验证失败: {token}")
         return union_openid
     
-    def create_jwt(self, union_openid: str) -> Tuple[str, int]:
+    def create_jwt(self, union_openid: str) -> tuple[str, int]:
         """创建JWT令牌，同时使该用户的旧JWT失效
         
         Args:
@@ -97,7 +97,7 @@ class OAuthManager:
         log.info(f"[OAuth] 为用户 {union_openid[:8]}... 签发JWT，有效期{OAUTH_JWT_EXPIRY_DAYS}天")
         return jwt_token, expires_in
     
-    def verify_jwt(self, token: str) -> Optional[str]:
+    def verify_jwt(self, token: str) -> str | None:
         """验证JWT令牌
         
         Args:

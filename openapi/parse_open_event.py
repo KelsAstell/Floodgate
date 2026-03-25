@@ -1,6 +1,6 @@
 import re
 import time
-from typing import Dict, Any, List
+from typing import Any
 
 from config import BOT_APPID, TRANSPARENT_OPENID, CUSTOM_COMMAND_ON_REMOVE
 from openapi.constant import face_id_dict
@@ -58,8 +58,6 @@ def convert_openapi_message_to_cq(content: str, attachments: list) -> list:
                 }
             })
     return message
-
-from typing import List, Dict, Any
 
 
 def returnable_ark(data):
@@ -172,7 +170,7 @@ RICH_TEXT_SEGMENT_DICT = {
     "at":rich_segment_at,
 }
 
-def convert_cq_to_openapi_message(segments: List[Dict[str, Any]]) -> Dict[str, Any]:
+def convert_cq_to_openapi_message(segments: list[dict[str, Any]]) -> dict[str, Any]:
     rich_segments = []
     for seg in segments:
         seg_type = seg.get("type")

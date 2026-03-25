@@ -2,7 +2,7 @@ import base64
 import hashlib
 import json
 from io import BytesIO
-from typing import Optional
+
 
 import aiohttp
 import asyncio
@@ -22,7 +22,7 @@ cache_lock = asyncio.Lock()
 SEND_FAILED_DICT = {"success":0, "failed":0}
 
 # 全局 aiohttp ClientSession，避免重复创建连接
-_http_session: Optional[aiohttp.ClientSession] = None
+_http_session: aiohttp.ClientSession | None = None
 _session_lock = asyncio.Lock()
 
 async def get_http_session() -> aiohttp.ClientSession:
@@ -88,7 +88,7 @@ async def get_wss_gateway(access_token):
         log.error(f"网络请求异常: {e}")
 
 
-async def call_open_api(method: str, endpoint: str, payload: dict = None, sleepy:Optional[bool]=True):
+async def call_open_api(method: str, endpoint: str, payload: dict = None, sleepy: bool | None = True):
     access_token = await token_manager.get_access_token(only_get_token=True)
     if not access_token:
         raise ValueError("无法获取 ACCESS_TOKEN，请尝试重启Floodgate")
@@ -221,7 +221,7 @@ async def post_guild_image(data):
     elif file_image:
         try:
             if file_image.startswith("file:///"):
-                file_image = file_image.lstrip("file:///")
+                file_image = file_image.removeprefix("file:///")
             with open(file_image, "rb") as f:
                 image_data = f.read()
         except (IOError, FileNotFoundError) as e:
@@ -339,7 +339,7 @@ async def post_im_message(user_id, group_id, message):
                     ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
                     image_info_list.append(ret["file_info"])
                 elif segment["url"].startswith("file:///"):
-                    file_path = segment["url"].lstrip("file:///")
+                    file_path = segment["url"].removeprefix("file:///")
                     with open(file_path, "rb") as image_file:
                         encoded_str = base64.b64encode(image_file.read()).decode("utf-8")
                         payload = {"file_type": 1, "file_data": encoded_str}
@@ -408,7 +408,7 @@ async def post_im_message(user_id, group_id, message):
                 payload = {"event_id": msg_id, "file_type": 3, "url": message["data"]}
                 silk = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
             elif message["data"].startswith("file:///"):
-                file_path = message["data"].lstrip("file:///")
+                file_path = message["data"].removeprefix("file:///")
                 with open(file_path, "rb") as silk_file:
                     encoded_str = base64.b64encode(silk_file.read()).decode("utf-8")
                 payload = {"file_type": 3, "file_data": encoded_str}
