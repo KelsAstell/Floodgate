@@ -56,6 +56,23 @@ async def show_welcome():
 
 
 
+async def _get_db_queue_size():
+    """获取数据库队列/连接状态"""
+    from openapi.database import db_manager
+    try:
+        if db_manager.get_type() == "postgresql":
+            # PostgreSQL: 获取连接池中的空闲连接数
+            backend = db_manager._backend
+            if backend and backend._pool:
+                return backend._pool.get_idle_size()
+            return 0
+        else:
+            # SQLite: 单连接模式，返回 0 或 1 表示连接状态
+            return 1 if db_manager._backend and db_manager._backend._initialized else 0
+    except Exception:
+        return 0
+
+
 async def get_health(start_time, connected_clients):
     from openapi.network import msg_seq_cache
     now = time.time()
@@ -88,7 +105,7 @@ async def get_health(start_time, connected_clients):
         },
         "database": {  # 数据库状态
             "pool_size": POOL_SIZE,
-            "queue": pool._queue.qsize() if pool._queue else 0
+            "queue": await _get_db_queue_size()
         },
         "cache": {
             "message": {  # 消息缓存状态

@@ -4,6 +4,7 @@ aiosqlite==0.22.1
 anyio==4.4.0
 apscheduler==3.11.2
 async_lru==2.0.5
+asyncpg==0.30.0
 cachetools==5.5.2
 cryptography==46.0.5
 fastapi==0.135.2
