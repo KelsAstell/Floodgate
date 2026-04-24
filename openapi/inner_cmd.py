@@ -4,7 +4,7 @@ import time
 from config import BOT_NAME, TRANSPARENT_OPENID, ACHIEVEMENT_PERSIST, OAUTH_LOGIN_TOKEN_TTL
 from openapi.database import get_dau_today, get_achievement_list, get_or_create_digit_id
 from openapi.draw_ach import generate_achievement_page_image
-from openapi.network import post_floodgate_message, post_im_message, post_floodgate_rich_message
+from openapi.network import post_floodgate_message, post_im_message, post_floodgate_rich_message, post_floodgate_markdown_message
 from openapi.tool import is_user_admin, set_maintaining_message, get_health, get_dau_history
 
 
@@ -69,5 +69,5 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
         if not user_openid:
             return await post_floodgate_message("无法获取用户身份，请稍后重试", d)
         token = oauth_manager.generate_login_token(user_openid)
-        msg = f"您的登录令牌为：{token}\n有效期{OAUTH_LOGIN_TOKEN_TTL}秒，请勿泄露。"
-        return await post_floodgate_message(msg, d)
+        markdown_content = {"content": f"Oauth登录令牌：<qqbot-cmd-input text=\"{token}\" show=\"点击后，在底部输入框内显示\"/>\n有效期{OAUTH_LOGIN_TOKEN_TTL}秒，谨防泄露。"}
+        return await post_floodgate_markdown_message(markdown_content, d)

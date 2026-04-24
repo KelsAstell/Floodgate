@@ -306,6 +306,28 @@ async def post_floodgate_rich_message(msg, image, d):
                "msg_seq": await get_next_msg_seq(msg_id)}
     return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload, False)
 
+async def post_floodgate_markdown_message(markdown_content, d):
+    user_openid = d.get("author", {}).get("union_openid")
+    group_openid = d.get("group_openid", d.get("channel_id"))
+    if group_openid:
+        union_id = group_openid
+        if str(group_openid).isdigit():
+            endpoint = "/channels"
+        else:
+            endpoint = "/v2/groups"
+    else:
+        endpoint = "/v2/users"
+        union_id = user_openid
+    msg_id = d.get("id", "0")
+    payload = {
+        "content": "markdown",
+        "msg_type": 2,
+        "msg_id": msg_id,
+        "msg_seq": await get_next_msg_seq(msg_id),
+        "markdown": markdown_content
+    }
+    return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload, False)
+
 async def post_im_message(user_id, group_id, message):
     msg_id = await message_id_to_open_id(user_id, group_id)
     msg_seq = await get_next_msg_seq(msg_id)
