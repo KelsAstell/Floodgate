@@ -134,7 +134,16 @@ async def call_open_api(method: str, endpoint: str, payload: dict = None, sleepy
                             payload["msg_seq"] = await get_next_msg_seq(payload["msg_id"])
                         elif err_code in [40034101, 40054002]: # 机器人非群成员/被禁言
                             SEND_FAILED_DICT["success"] += 1
-                            break
+                            # 返回带 send_failed 标记的结果，避免下游因 None 崩溃，
+                            # 并让 OneBot 端能拿到具体失败原因
+                            return {
+                                "id": None,
+                                "send_failed": True,
+                                "err_code": err_code,
+                                "sub_type": "kicked" if err_code == 40034101 else "muted",
+                                "message": err_data.get("message"),
+                                "trace_id": err_data.get("trace_id"),
+                            }
                     
                     # 决定是否重试
                     if attempt < retries - 1:
@@ -355,10 +364,14 @@ async def post_im_message(user_id, group_id, message):
                 if segment["url"].startswith("base64://"):
                     payload = {"file_type": 1, "file_data": segment["url"][9:]}
                     ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
+                    if isinstance(ret, dict) and ret.get("send_failed"):
+                        return ret
                     image_info_list.append(ret["file_info"])
                 elif segment["url"].startswith("http://") or segment["url"].startswith("https://"):
                     payload = {"event_id": msg_id, "file_type": 1, "url": segment["url"]}
                     ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
+                    if isinstance(ret, dict) and ret.get("send_failed"):
+                        return ret
                     image_info_list.append(ret["file_info"])
                 elif segment["url"].startswith("file:///"):
                     file_path = segment["url"].removeprefix("file:///")
@@ -366,12 +379,16 @@ async def post_im_message(user_id, group_id, message):
                         encoded_str = base64.b64encode(image_file.read()).decode("utf-8")
                         payload = {"file_type": 1, "file_data": encoded_str}
                         ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
+                        if isinstance(ret, dict) and ret.get("send_failed"):
+                            return ret
                         image_info_list.append(ret["file_info"])
         if len(image_info_list) > 1:
             for image in image_info_list[:-1]:
                 payload = {"msg_type": 7, "media": {"file_info": image}, "msg_id": msg_id,
                            "msg_seq": await get_next_msg_seq(msg_id)}
-                await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
+                ret = await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
+                if isinstance(ret, dict) and ret.get("send_failed"):
+                    return ret
         if not len(image_info_list):
             payload = {"content": text, "msg_type": 0, "msg_id": msg_id, "msg_seq": await get_next_msg_seq(msg_id)}
             sleepy = False
@@ -401,6 +418,8 @@ async def post_im_message(user_id, group_id, message):
         file_data = await generate_achievement_image(ach_id)
         payload = {"file_type": 1, "file_data": file_data}
         ret = await call_open_api("POST", f"{endpoint}/{union_id}/files", payload)
+        if isinstance(ret, dict) and ret.get("send_failed"):
+            return ret
         payload = {"content": "获得了新的成就！", "msg_type": 7, "media": {"file_info": ret["file_info"]}, "msg_id": msg_id,
                    "msg_seq": await get_next_msg_seq(msg_id)}
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload, False)
@@ -440,6 +459,8 @@ async def post_im_message(user_id, group_id, message):
                 return await call_open_api("POST", f"{endpoint}/{union_id}/messages",
                                            {"content": "传入的silk参数不是正确的base64编码、url或文件路径",
                                             "msg_type": 0, "msg_id": msg_id, "msg_seq": msg_seq})
+            if isinstance(silk, dict) and silk.get("send_failed"):
+                return silk
             payload = {"msg_type": 7, "media": {"file_info": silk.get("file_info")}, "msg_id": msg_id,
                        "msg_seq": await get_next_msg_seq(msg_id)}
             return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)

@@ -384,8 +384,38 @@ async def websocket_endpoint(websocket: WebSocket):
                         msg_list = msg_list[2:]
                     ret = await post_im_message(user_id, group_id,
                                                 convert_cq_to_openapi_message(msg_list))
+                    # 机器人被踢/被禁言等场景：返回 finish，并向 OneBot 端推送 notice 事件，携带失败原因
+                    if isinstance(ret, dict) and ret.get("send_failed"):
+                        reason_map = {
+                            "kicked": "机器人非群成员（已被踢出或未入群）",
+                            "muted": "机器人被禁言",
+                        }
+                        notice_event = {
+                            "time": int(time.time()),
+                            "self_id": str(BOT_APPID),
+                            "post_type": "notice",
+                            "notice_type": "floodgate_send_failed",
+                            "sub_type": ret.get("sub_type") or "unknown",
+                            "user_id": user_id or 0,
+                            "group_id": group_id or 0,
+                            "operator_id": 0,
+                            "err_code": ret.get("err_code"),
+                            "message": ret.get("message") or reason_map.get(ret.get("sub_type"), "消息发送失败"),
+                            "trace_id": ret.get("trace_id"),
+                        }
+                        try:
+                            await websocket.send_json(notice_event)
+                            log.warning(
+                                f"[WebSocket] 消息发送失败已通知 OneBot: user_id={user_id}, group_id={group_id}, "
+                                f"err_code={ret.get('err_code')}, reason={notice_event['message']}"
+                            )
+                        except Exception as notify_exc:
+                            log.warning(f"[WebSocket] 推送发送失败通知时异常: {notify_exc}")
+                        await websocket.send_json(
+                            {"status": "ok", "retcode": 0, "data": {"message_id": None}, "echo": echo})
+                        continue
                     await websocket.send_json(
-                        {"status": "ok", "retcode": 0, "data": {"message_id": ret.get("id")}, "echo": echo})
+                        {"status": "ok", "retcode": 0, "data": {"message_id": ret.get("id") if isinstance(ret, dict) else None}, "echo": echo})
                 elif message.get("action") == "delete_msg":
                     message_id = message["params"].get("message_id")
                     if message_id:
@@ -959,7 +989,6 @@ CURRENT_MSG_ID = 0
 if __name__ == "__main__":
     log.remove()
     log.add(sys.stdout, level=LOG_LEVEL, format=LOG_FORMAT)
-    log.add("warnings_and_errors.log", level="WARNING", rotation="10 MB", retention="7 days", encoding="utf-8")
     import ctypes
     ctypes.windll.kernel32.SetConsoleTitleW(f"Floodgate {VERSION}" if not CUSTOM_TITLE else CUSTOM_TITLE)
     asyncio.run(check_config())
