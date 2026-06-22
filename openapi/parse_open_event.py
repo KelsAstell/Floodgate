@@ -372,9 +372,7 @@ async def parse_open_message_event(current_msg_id,payload: dict):
     if current_msg_id >= message_id: # 消息去重
         return None
     timestamp = int(time.time())
-    content_str = payload.get("content", "").strip()
-    if payload.get("channel_id"):
-        content_str = re.sub(r'<@!?[0-9A-Za-z]+>', '', content_str).strip()
+    content_str = re.sub(r'<@!?[0-9A-Za-z]+>', '', payload.get("content", "")).strip()
     message = convert_openapi_message_to_cq(content_str, payload.get("attachments", []))
     event = {
         "time": timestamp,

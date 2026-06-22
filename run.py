@@ -220,10 +220,8 @@ async def openapi_webhook(request: Request):
             await parse_floodgate_cmd(start_time,connected_clients,payload,request.headers)
             
             # 解析消息内容
-            content_str = d.get("content", "").strip()
-            if payload.get("channel_id"):
-                import re
-                content_str = re.sub(r'<@!?[0-9A-Za-z]+>', '', content_str).strip()
+            import re
+            content_str = re.sub(r'<@!?[0-9A-Za-z]+>', '', d.get("content", "")).strip()
             
             # 获取用户ID和群ID
             user_open_id = d.get("author", {}).get("union_openid")
