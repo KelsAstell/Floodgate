@@ -374,7 +374,7 @@ async def parse_open_message_event(current_msg_id,payload: dict):
     timestamp = int(time.time())
     content_str = payload.get("content", "").strip()
     if payload.get("channel_id"):
-        content_str = re.sub(r'<@![0-9A-Za-z]+>', '', content_str).strip()
+        content_str = re.sub(r'<@!?[0-9A-Za-z]+>', '', content_str).strip()
     message = convert_openapi_message_to_cq(content_str, payload.get("attachments", []))
     event = {
         "time": timestamp,

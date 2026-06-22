@@ -337,7 +337,7 @@ async def post_floodgate_markdown_message(markdown_content, d):
     }
     return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload, False)
 
-async def post_im_message(user_id, group_id, message):
+async def post_im_message(user_id, group_id, message, suppress_add_return=False):
     msg_id = await message_id_to_open_id(user_id, group_id)
     msg_seq = await get_next_msg_seq(msg_id)
     endpoint = "/v2/groups" if group_id else "/v2/users"
@@ -348,7 +348,7 @@ async def post_im_message(user_id, group_id, message):
     await increment_usage(user_id)
     if message.get("type") == "text":
         payload = {"msg_type": 0, "msg_id": msg_id, "msg_seq": msg_seq}
-        if group_id and ADD_RETURN and not message["text"].startswith("\n"):
+        if group_id and ADD_RETURN and not suppress_add_return and not message["text"].startswith("\n"):
             payload["content"] = "\n" + message["text"]
         else:
             payload["content"] = message["text"]
@@ -396,7 +396,7 @@ async def post_im_message(user_id, group_id, message):
             payload = {"content": text, "msg_type": 7, "media": {"file_info": image_info_list[-1]}, "msg_id": msg_id,
                        "msg_seq": await get_next_msg_seq(msg_id)}
             sleepy = True
-        if group_id and ADD_RETURN and not payload["content"].startswith("\n"):
+        if group_id and ADD_RETURN and not suppress_add_return and not payload["content"].startswith("\n"):
             if payload["content"]:
                 payload["content"] = "\n" + payload["content"]
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload, sleepy)

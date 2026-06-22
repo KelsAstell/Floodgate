@@ -211,8 +211,8 @@ async def openapi_webhook(request: Request):
             else:
                 log.success(f"群消息拒绝推送，群: {group_openid}，操作者: {op_openid}")
             ob_data = await parse_group_msg_reject(d)
-        elif t in ["GROUP_AT_MESSAGE_CREATE", "C2C_MESSAGE_CREATE","AT_MESSAGE_CREATE"]:
-            if RATE_LIMIT:
+        elif t in ["GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE", "C2C_MESSAGE_CREATE","AT_MESSAGE_CREATE"]:
+            if RATE_LIMIT and t != "GROUP_MESSAGE_CREATE":
                 is_rate_limit = await rate_limit(d)
                 if is_rate_limit:
                     return {"status": "rate_limit", "op": op}
@@ -223,7 +223,7 @@ async def openapi_webhook(request: Request):
             content_str = d.get("content", "").strip()
             if payload.get("channel_id"):
                 import re
-                content_str = re.sub(r'<@![0-9A-Za-z]+>', '', content_str).strip()
+                content_str = re.sub(r'<@!?[0-9A-Za-z]+>', '', content_str).strip()
             
             # 获取用户ID和群ID
             user_open_id = d.get("author", {}).get("union_openid")
@@ -247,7 +247,7 @@ async def openapi_webhook(request: Request):
                 else:
                     log.error(f"[OpenAPI Message] 用户同意协议失败，user_id={user_id}")
                     response_msg = "❌ 同意协议失败，请稍后重试。"
-                await post_im_message(user_id, group_id, {"type": "text", "text": response_msg})
+                await post_im_message(user_id, group_id, {"type": "text", "text": response_msg}, suppress_add_return=(t == "GROUP_MESSAGE_CREATE"))
                 return {"status": "agreement_handled", "op": op}
             
             # 检查用户是否已同意协议（如果不是同意命令）
@@ -255,7 +255,7 @@ async def openapi_webhook(request: Request):
                 has_agreed = await check_user_agreement(user_id, USER_AGREEMENT_VERSION)
                 if not has_agreed:
                     log.warning(f"[OpenAPI Message] 用户未同意协议，阻断消息，user_id={user_id}")
-                    await post_im_message(user_id, group_id, {"type": "text", "text": USER_AGREEMENT_MESSAGE})
+                    await post_im_message(user_id, group_id, {"type": "text", "text": USER_AGREEMENT_MESSAGE}, suppress_add_return=(t == "GROUP_MESSAGE_CREATE"))
                     return {"status": "agreement_required", "op": op}
             
             ob_data = await parse_open_message_event(CURRENT_MSG_ID, d)
