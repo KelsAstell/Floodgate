@@ -216,6 +216,10 @@ async def openapi_webhook(request: Request):
                 log.success(f"群消息拒绝推送，群: {group_openid}，操作者: {op_openid}")
             ob_data = await parse_group_msg_reject(d)
         elif t in ["GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE", "C2C_MESSAGE_CREATE","AT_MESSAGE_CREATE"]:
+            # 机器人自身消息直接丢弃，不进入处理流程
+            if d.get("author", {}).get("bot"):
+                log.info(f"收到机器人自身消息，已丢弃，事件类型: {t}")
+                return {"status": "bot_message_ignored", "op": op}
             if RATE_LIMIT and t != "GROUP_MESSAGE_CREATE":
                 is_rate_limit = await rate_limit(d)
                 if is_rate_limit:
