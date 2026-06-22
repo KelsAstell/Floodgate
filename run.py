@@ -50,6 +50,10 @@ oauth_response_queues_lock = asyncio.Lock()
 # 结构: {message_id: {"user_id": <user_id>, "event": <onebot_event_dict>}}
 oauth_message_cache = TTLCache(maxsize=5000, ttl=120)
 
+# 事件类型缓存（用于 WebSocket 响应时判断是否需要禁用 ADD_RETURN 及剥离前导换行）
+# 结构: {(user_id, group_id): event_type}
+_event_type_cache = TTLCache(maxsize=500, ttl=30)
+
 
 async def process_oauth_message(message: dict) -> dict:
     """
@@ -233,6 +237,9 @@ async def openapi_webhook(request: Request):
                 user_id = user_open_id
                 group_id = group_openid
             
+            # 记录事件类型，供 WebSocket 响应时查找
+            _event_type_cache[(user_id, group_id)] = t
+            
             # 检查是否为"同意"命令
             is_agree_msg = content_str == "同意" or content_str.startswith("/agree")
             
@@ -380,8 +387,10 @@ async def websocket_endpoint(websocket: WebSocket):
                     msg_list = params.get("message", ["", "", {"type": "text", "data": {"text": "未知异常"}}])
                     if msg_list[0].get("type") == "at" and REMOVE_AT:
                         msg_list = msg_list[2:]
+                    event_type = _event_type_cache.get((user_id, group_id))
                     ret = await post_im_message(user_id, group_id,
-                                                convert_cq_to_openapi_message(msg_list))
+                                                convert_cq_to_openapi_message(msg_list),
+                                                suppress_add_return=(event_type == "GROUP_MESSAGE_CREATE"))
                     # 机器人被踢/被禁言等场景：返回 finish，并向 OneBot 端推送 notice 事件，携带失败原因
                     if isinstance(ret, dict) and ret.get("send_failed"):
                         reason_map = {

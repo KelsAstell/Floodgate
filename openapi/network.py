@@ -348,10 +348,13 @@ async def post_im_message(user_id, group_id, message, suppress_add_return=False)
     await increment_usage(user_id)
     if message.get("type") == "text":
         payload = {"msg_type": 0, "msg_id": msg_id, "msg_seq": msg_seq}
-        if group_id and ADD_RETURN and not suppress_add_return and not message["text"].startswith("\n"):
-            payload["content"] = "\n" + message["text"]
+        text = message["text"]
+        if suppress_add_return:
+            text = text.lstrip("\n")
+        if group_id and ADD_RETURN and not suppress_add_return and not text.startswith("\n"):
+            payload["content"] = "\n" + text
         else:
-            payload["content"] = message["text"]
+            payload["content"] = text
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
     elif message.get("type") == "rich_text":
         segments = message["segments"]
@@ -396,6 +399,8 @@ async def post_im_message(user_id, group_id, message, suppress_add_return=False)
             payload = {"content": text, "msg_type": 7, "media": {"file_info": image_info_list[-1]}, "msg_id": msg_id,
                        "msg_seq": await get_next_msg_seq(msg_id)}
             sleepy = True
+        if suppress_add_return:
+            payload["content"] = payload["content"].lstrip("\n")
         if group_id and ADD_RETURN and not suppress_add_return and not payload["content"].startswith("\n"):
             if payload["content"]:
                 payload["content"] = "\n" + payload["content"]
