@@ -11,7 +11,7 @@ from openapi.tool import is_user_admin, set_maintaining_message, get_health, get
 async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #直接传个d进来应该够用，我错了
     d = payload.get("d", {})
     cmd = d.get("content", "").strip()
-    cmd = re.sub(r'<@!?[0-9A-Za-z]+>', '', cmd).strip()
+    cmd = re.sub(r'<@!?[0-9A-Za-z]+>\s*', '', cmd).strip()
     if not cmd.startswith("~"):
         return
     cmd = cmd[1:]

@@ -229,7 +229,7 @@ async def openapi_webhook(request: Request):
             
             # 解析消息内容
             import re
-            content_str = re.sub(r'<@!?[0-9A-Za-z]+>', '', d.get("content", "")).strip()
+            content_str = re.sub(r'<@!?[0-9A-Za-z]+>\s*', '', d.get("content", "")).strip()
             
             # 获取用户ID和群ID
             user_open_id = d.get("author", {}).get("union_openid")
@@ -394,7 +394,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     event_type = _event_type_cache.get((user_id, group_id))
                     ret = await post_im_message(user_id, group_id,
                                                 convert_cq_to_openapi_message(msg_list),
-                                                suppress_add_return=(event_type == "GROUP_MESSAGE_CREATE"))
+                                                suppress_add_return=(event_type is None or event_type == "GROUP_MESSAGE_CREATE"))
                     # 机器人被踢/被禁言等场景：返回 finish，并向 OneBot 端推送 notice 事件，携带失败原因
                     if isinstance(ret, dict) and ret.get("send_failed"):
                         reason_map = {

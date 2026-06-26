@@ -372,7 +372,12 @@ async def parse_open_message_event(current_msg_id,payload: dict):
     if current_msg_id >= message_id: # 消息去重
         return None
     timestamp = int(time.time())
-    content_str = re.sub(r'<@!?[0-9A-Za-z]+>', '', payload.get("content", "")).strip()
+    content_str = re.sub(r'<@!?[0-9A-Za-z]+>\s*', '', payload.get("content", "")).strip()
+    # 当且仅当 at 的是机器人自身（is_you=True）时，在消息最前面加 @
+    mentions = payload.get("mentions", [])
+    is_bot_mentioned = any(m.get("is_you") for m in mentions)
+    if is_bot_mentioned and content_str:
+        content_str = "@" + content_str
     message = convert_openapi_message_to_cq(content_str, payload.get("attachments", []))
     event = {
         "time": timestamp,
