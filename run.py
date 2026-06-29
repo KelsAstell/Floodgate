@@ -533,27 +533,46 @@ async def oauth_login(request: OAuthLoginRequest):
 
 # OAuth命令代理接口
 @app.post(f"{WEBHOOK_ENDPOINT}/oauth_command")
-async def oauth_command(request: OAuthCommandRequest, authorization: str | None = Header(None), req: Request = None):
+async def oauth_command(request: OAuthCommandRequest, authorization: str | None = Header(None), x_bot_shared_secret: str | None = Header(None, alias="X-Bot-Shared-Secret"), req: Request = None):
     """使用JWT认证，将命令转发给OneBot客户端，立即返回。响应通过SSE接口获取"""
     # 打印请求信息
     client_ip = req.client.host if req and req.client else "unknown"
     log.info(f"[OAuth Command] 收到命令请求，客户端IP: {client_ip}")
     log.info(f"[OAuth Command] 请求参数: action={request.action}, params={json.dumps(request.params, ensure_ascii=False)}")
     
-    # 验证JWT
-    if not authorization or not authorization.startswith("Bearer "):
-        log.warning(f"[OAuth Command] 认证失败: 缺少或无效的 Authorization header")
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    # 检查 X-Bot-Shared-Secret 是否匹配 DEV_TOKEN（管理员特权模式）
+    is_admin_mode = False
+    if DEV_TOKEN and x_bot_shared_secret == DEV_TOKEN:
+        if not ADMIN_LIST:
+            log.warning(f"[OAuth Command] DEV_TOKEN 验证通过但 ADMIN_LIST 为空，无法以管理员身份运行")
+        else:
+            is_admin_mode = True
+            user_id = ADMIN_LIST[0]
+            log.info(f"[OAuth Command] DEV_TOKEN 验证通过，以管理员身份运行，user_id={user_id}")
     
-    jwt_token = authorization[7:]  # 移除 "Bearer " 前缀
-    log.debug(f"[OAuth Command] JWT Token: {jwt_token[:20]}...")
-    
-    union_openid = oauth_manager.verify_jwt(jwt_token)
-    if not union_openid:
-        log.warning(f"[OAuth Command] JWT 验证失败")
-        raise HTTPException(status_code=401, detail="Invalid or expired JWT token")
-    
-    log.info(f"[OAuth Command] JWT 验证成功，union_openid={union_openid}")
+    if not is_admin_mode:
+        # 验证JWT
+        if not authorization or not authorization.startswith("Bearer "):
+            log.warning(f"[OAuth Command] 认证失败: 缺少或无效的 Authorization header")
+            raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+        
+        jwt_token = authorization[7:]  # 移除 "Bearer " 前缀
+        log.debug(f"[OAuth Command] JWT Token: {jwt_token[:20]}...")
+        
+        union_openid = oauth_manager.verify_jwt(jwt_token)
+        if not union_openid:
+            log.warning(f"[OAuth Command] JWT 验证失败")
+            raise HTTPException(status_code=401, detail="Invalid or expired JWT token")
+        
+        log.info(f"[OAuth Command] JWT 验证成功，union_openid={union_openid}")
+        
+        # 获取用户的数字ID
+        if TRANSPARENT_OPENID:
+            user_id = union_openid
+        else:
+            user_id = await get_or_create_digit_id(union_openid)
+        
+        log.info(f"[OAuth Command] 用户ID映射完成，user_id={user_id}")
     
     # 检查是否有已连接的客户端
     if not connected_clients:
@@ -561,14 +580,6 @@ async def oauth_command(request: OAuthCommandRequest, authorization: str | None 
         raise HTTPException(status_code=503, detail="No OneBot client connected")
     
     log.info(f"[OAuth Command] OneBot 客户端连接数: {len(connected_clients)}")
-    
-    # 获取用户的数字ID
-    if TRANSPARENT_OPENID:
-        user_id = union_openid
-    else:
-        user_id = await get_or_create_digit_id(union_openid)
-    
-    log.info(f"[OAuth Command] 用户ID映射完成，user_id={user_id}")
     
     # 构造 OneBot 消息事件
     raw_message = request.params.get("message", "")

@@ -5,6 +5,8 @@ OB_ACCESS_TOKEN = ""                                        # onebot实现的 .e
 BOT_NAME = "BOT"                                            # 机器人名字，可不填
 ADMIN_LIST = []                                             # 管理员的数字ID，如果 TRANSPARENT_OPENID 为 True （开启透传模式）时，
                                                             # 需要填写OpenID，可在DEBUG模式下获取，用于部分管理功能调用
+DEV_TOKEN = ""                                               # 开发令牌，用于 /webhook/oauth_command 接口的 X-Bot-Shared-Secret 请求头验证
+                                                            # 验证通过后以 ADMIN_LIST[0] 的身份执行命令，跳过 JWT 认证
 
 
 #——————————————————常规配置（你可能会偶尔改的东西）———————————————#
