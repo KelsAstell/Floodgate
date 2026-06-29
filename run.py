@@ -279,7 +279,9 @@ async def openapi_webhook(request: Request):
         # 只有正常消息事件才触发维护通知，群事件（进群/退群/推送设置）不触发
         message_event_types = ["GROUP_AT_MESSAGE_CREATE", "C2C_MESSAGE_CREATE", "AT_MESSAGE_CREATE"]
         if not connected_clients and t in message_event_types:  # 判断是否没有已连接的客户端且是消息事件
-            await post_floodgate_message(await get_maintaining_message(), d)
+            maintaining_msg = await get_maintaining_message()
+            if maintaining_msg:
+                await post_floodgate_message(maintaining_msg, d)
             log.warning(f"没有已连接的客户端，当前处于维护模式！")
             return {"status": "maintaining", "op": op}
         elif not connected_clients:
