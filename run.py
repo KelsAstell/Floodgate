@@ -269,7 +269,7 @@ async def openapi_webhook(request: Request):
             
             ob_data = await parse_open_message_event(CURRENT_MSG_ID, d)
             if not ob_data:
-                log.info("平台推送事件消息已去重")
+                log.info("消息被去重或被自定义规则过滤")
                 return {"status": "duplicate", "op": op}
             CURRENT_MSG_ID = ob_data.get("message_id")
         else:

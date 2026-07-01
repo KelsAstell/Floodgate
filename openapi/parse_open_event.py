@@ -1,8 +1,10 @@
+import base64
+import json
 import re
 import time
 from typing import Any
 
-from config import BOT_APPID, TRANSPARENT_OPENID, CUSTOM_COMMAND_ON_REMOVE
+from config import BOT_APPID, TRANSPARENT_OPENID, CUSTOM_COMMAND_ON_REMOVE, IGNORE_EMOTES
 from openapi.constant import face_id_dict
 from openapi.database import get_or_create_digit_id
 from anyio import Lock
@@ -189,6 +191,48 @@ def convert_cq_to_openapi_message(segments: list[dict[str, Any]]) -> dict[str, A
             "segments": rich_segments
         }
 
+def convert_face_tags(content: str) -> str:
+    """将 <faceType=N,faceId="X",ext="BASE64"> 表情标签转换为文字
+    
+    解析规则：
+    1. 优先从 ext 字段 Base64 解码 JSON 中提取 text
+    2. 若 ext 为空，回退到 faceId 映射 face_id_dict
+    3. 兜底返回 "[表情]"
+    """
+    def _replace_face(match):
+        face_type = match.group(1)
+        face_id = match.group(2)
+        ext_b64 = match.group(3)
+        
+        # 优先从 ext 中解码文字
+        if ext_b64:
+            try:
+                ext_json = json.loads(base64.b64decode(ext_b64).decode('utf-8'))
+                text = ext_json.get("text", "")
+                if text:
+                    return text
+            except Exception:
+                pass
+        
+        # 回退到 face_id_dict
+        if face_id:
+            try:
+                face_name = face_id_dict.get(int(face_id))
+                if face_name:
+                    return f"[{face_name}]"
+            except (ValueError, TypeError):
+                pass
+        
+        # 最后兜底
+        return "[表情]"
+    
+    return re.sub(
+        r'<faceType=(\d+),faceId="([^"]*)",ext="([^"]*)">',
+        _replace_face,
+        content
+    )
+
+
 async def parse_group_add(payload: dict):
     if not TRANSPARENT_OPENID:
         return {
@@ -372,7 +416,21 @@ async def parse_open_message_event(current_msg_id,payload: dict):
     if current_msg_id >= message_id: # 消息去重
         return None
     timestamp = int(time.time())
-    content_str = re.sub(r'<@!?[0-9A-Za-z]+>\s*', '', payload.get("content", "")).strip()
+    raw_content = payload.get("content", "")
+
+    # 表情消息丢弃：若开启 IGNORE_EMOTES 且消息仅有表情标签无有效文字，直接丢弃
+    # 注意：腾讯特殊表情的 faceType 标签是占位符，附件中的图片是表情渲染，也一并丢弃
+    if IGNORE_EMOTES:
+        has_face = bool(re.search(r'<faceType=\d+,faceId="[^"]*",ext="[^"]*">', raw_content))
+        if has_face:
+            stripped = re.sub(r'<faceType=\d+,faceId="[^"]*",ext="[^"]*">', '', raw_content)
+            stripped = re.sub(r'<@!?[0-9A-Za-z]+>\s*', '', stripped).strip()
+            if not stripped:
+                return None
+
+    # 先转换表情标签，再清洗 AT 前缀
+    content_str = convert_face_tags(raw_content)
+    content_str = re.sub(r'<@!?[0-9A-Za-z]+>\s*', '', content_str).strip()
     # 当且仅当 at 的是机器人自身（is_you=True）时，在消息最前面加 @
     mentions = payload.get("mentions", [])
     is_bot_mentioned = any(m.get("is_you") for m in mentions)
@@ -388,7 +446,7 @@ async def parse_open_message_event(current_msg_id,payload: dict):
         "message_id": message_id,
         "user_id": user_id,
         "message": message,
-        "raw_message": payload.get("content", ""),
+        "raw_message": convert_face_tags(raw_content),
         "font": 0,
         "sender": {
             "user_id": user_id,
