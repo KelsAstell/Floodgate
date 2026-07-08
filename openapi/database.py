@@ -227,6 +227,13 @@ class DatabaseManager:
                 )
             ''')
 
+        # 全量消息黑名单表（GROUP_MESSAGE_CREATE）
+        await self._backend.execute(f'''
+            CREATE TABLE IF NOT EXISTS gm_blacklist (
+                group_id TEXT PRIMARY KEY
+            )
+        ''')
+
         if not TRANSPARENT_OPENID:
             await self._backend.execute(f'''
                 CREATE TABLE IF NOT EXISTS idmap (
@@ -834,4 +841,96 @@ async def get_user_agreement_status(user_id: str) -> dict:
                 "agreed_at": row[1]
             }
         return {"agreed": False, "version": None, "agreed_at": None}
+
+
+# ==================== 全量消息黑名单操作 ====================
+
+async def get_gm_blacklist() -> list:
+    """获取全量消息黑名单中的所有群ID（数字ID）"""
+    async with pool.connection() as db:
+        if db_manager.get_type() == "postgresql":
+            rows = await db.fetch('SELECT group_id FROM gm_blacklist')
+        else:
+            cursor = await db.execute('SELECT group_id FROM gm_blacklist')
+            rows = await cursor.fetchall()
+            await cursor.close()
+        return [row[0] for row in rows] if rows else []
+
+
+async def is_group_in_gm_blacklist(group_id: str) -> bool:
+    """检查群是否在全量消息黑名单中
+    
+    Args:
+        group_id: 数字群ID（字符串形式）
+        
+    Returns:
+        bool: 是否在黑名单中
+    """
+    async with pool.connection() as db:
+        query = db_manager.adapt_query('SELECT 1 FROM gm_blacklist WHERE group_id = ?')
+        if db_manager.get_type() == "postgresql":
+            row = await db.fetchrow(query, str(group_id))
+        else:
+            cursor = await db.execute(query, (str(group_id),))
+            row = await cursor.fetchone()
+            await cursor.close()
+        return row is not None
+
+
+async def add_group_to_gm_blacklist(group_id: str) -> bool:
+    """添加群到全量消息黑名单
+    
+    Args:
+        group_id: 数字群ID（字符串形式）
+        
+    Returns:
+        bool: 是否成功添加（已存在返回 False）
+    """
+    try:
+        is_pg = db_manager.get_type() == "postgresql"
+        async with pool.connection() as db:
+            if is_pg:
+                await db.execute(
+                    'INSERT INTO gm_blacklist (group_id) VALUES ($1) ON CONFLICT DO NOTHING',
+                    str(group_id)
+                )
+            else:
+                await db.execute(
+                    'INSERT OR IGNORE INTO gm_blacklist (group_id) VALUES (?)',
+                    (str(group_id),)
+                )
+                await db.commit()
+        return True
+    except Exception as e:
+        log.error(f"添加群到黑名单失败: {e}")
+        return False
+
+
+async def remove_group_from_gm_blacklist(group_id: str) -> bool:
+    """从全量消息黑名单中移除群
+    
+    Args:
+        group_id: 数字群ID（字符串形式）
+        
+    Returns:
+        bool: 是否成功移除
+    """
+    try:
+        is_pg = db_manager.get_type() == "postgresql"
+        async with pool.connection() as db:
+            if is_pg:
+                result = await db.execute(
+                    'DELETE FROM gm_blacklist WHERE group_id = $1',
+                    str(group_id)
+                )
+            else:
+                cursor = await db.execute(
+                    'DELETE FROM gm_blacklist WHERE group_id = ?',
+                    (str(group_id),)
+                )
+                await db.commit()
+        return True
+    except Exception as e:
+        log.error(f"从黑名单移除群失败: {e}")
+        return False
 

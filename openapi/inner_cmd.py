@@ -2,7 +2,7 @@ import re
 import time
 
 from config import BOT_NAME, TRANSPARENT_OPENID, ACHIEVEMENT_PERSIST, OAUTH_LOGIN_TOKEN_TTL
-from openapi.database import get_dau_today, get_achievement_list, get_or_create_digit_id
+from openapi.database import get_dau_today, get_achievement_list, get_or_create_digit_id, get_gm_blacklist, add_group_to_gm_blacklist, remove_group_from_gm_blacklist
 from openapi.draw_ach import generate_achievement_page_image
 from openapi.network import post_floodgate_message, post_im_message, post_floodgate_rich_message, post_floodgate_markdown_message
 from openapi.tool import is_user_admin, set_maintaining_message, get_health, get_dau_history
@@ -46,6 +46,40 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
             dau_data = await get_dau_today()
             history_dau_msg = await get_dau_history()
             return await post_floodgate_message(f"---{BOT_NAME}数据统计---\n活跃用户数：{dau_data.get('dau', 0)}\n总调用数：{dau_data.get('dai', 0)}\n{history_dau_msg}", d)
+    elif cmd.startswith("gm_blacklist"):
+        if not await is_user_admin(d):
+            return await post_floodgate_message("权限不足，仅管理员可管理全量消息黑名单", d)
+        parts = cmd.split(maxsplit=1)
+        if len(parts) <= 1:
+            # 列出当前黑名单
+            blacklist = await get_gm_blacklist()
+            if not blacklist:
+                return await post_floodgate_message("全量消息黑名单为空\n用法：\n~gm_blacklist add <群数字ID>  - 拉黑群\n~gm_blacklist remove <群数字ID> - 解除拉黑\n~gm_blacklist list - 列出黑名单", d)
+            return await post_floodgate_message(f"全量消息黑名单（{len(blacklist)}个群）：\n" + "\n".join(blacklist), d)
+        sub_cmd = parts[1].strip()
+        if sub_cmd == "list":
+            blacklist = await get_gm_blacklist()
+            if not blacklist:
+                return await post_floodgate_message("全量消息黑名单为空", d)
+            return await post_floodgate_message(f"全量消息黑名单（{len(blacklist)}个群）：\n" + "\n".join(blacklist), d)
+        elif sub_cmd.startswith("add"):
+            add_parts = sub_cmd.split(maxsplit=1)
+            if len(add_parts) <= 1:
+                return await post_floodgate_message("请提供要拉黑的群数字ID\n例：~gm_blacklist add 123456", d)
+            group_id = add_parts[1].strip()
+            await add_group_to_gm_blacklist(group_id)
+            log.success(f"管理员将群 {group_id} 加入全量消息黑名单")
+            return await post_floodgate_message(f"已将群 {group_id} 加入全量消息黑名单", d)
+        elif sub_cmd.startswith("remove"):
+            remove_parts = sub_cmd.split(maxsplit=1)
+            if len(remove_parts) <= 1:
+                return await post_floodgate_message("请提供要解除拉黑的群数字ID\n例：~gm_blacklist remove 123456", d)
+            group_id = remove_parts[1].strip()
+            await remove_group_from_gm_blacklist(group_id)
+            log.success(f"管理员将群 {group_id} 从全量消息黑名单中移除")
+            return await post_floodgate_message(f"已将群 {group_id} 从全量消息黑名单中移除", d)
+        else:
+            return await post_floodgate_message("未知子命令，可用：add <群ID> | remove <群ID> | list", d)
     elif cmd.startswith("成就"):
         match = re.search(r"成就\s*(\d*)", cmd)
         page = 1  # 默认页
