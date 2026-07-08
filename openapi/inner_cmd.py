@@ -1,7 +1,7 @@
 import re
 import time
 
-from config import BOT_NAME, TRANSPARENT_OPENID, ACHIEVEMENT_PERSIST, OAUTH_LOGIN_TOKEN_TTL
+from config import BOT_NAME, TRANSPARENT_OPENID, ACHIEVEMENT_PERSIST, OAUTH_LOGIN_TOKEN_TTL, log
 from openapi.database import get_dau_today, get_achievement_list, get_or_create_digit_id, get_gm_blacklist, add_group_to_gm_blacklist, remove_group_from_gm_blacklist
 from openapi.draw_ach import generate_achievement_page_image
 from openapi.network import post_floodgate_message, post_im_message, post_floodgate_rich_message, post_floodgate_markdown_message
