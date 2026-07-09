@@ -18,6 +18,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id, get_or_create_digit_id, reset_usage_today, close_db_pool, add_achievement, get_achievement_list, get_achievement_stat, check_user_agreement, set_user_agreement, get_user_agreement_status, is_group_in_gm_blacklist, is_group_in_gm_whitelist
+from openapi.subscription import init_subscription_table, get_all_active_subscriptions, load_subscription_message, remove_group_subscription
 from openapi.encrypt import verifier
 from openapi.inner_cmd import parse_floodgate_cmd
 from openapi.oauth import oauth_manager
@@ -127,14 +128,83 @@ async def refresh_access_token():
         log.error(f"Token刷新失败:{e}")
 
 
+async def send_daily_subscription():
+    """每日早 8:00 向所有订阅群发送订阅消息，频率不超过 SUBSCRIPTION_QPM"""
+    from datetime import datetime
+    from openapi.network import call_open_api, msg_id_generator
+
+    subscriptions = await get_all_active_subscriptions()
+    if not subscriptions:
+        log.debug("没有订阅的群，跳过每日推送")
+        return
+
+    template = await load_subscription_message()
+    markdown_content = template.get("content", "")
+    template_id = template.get("template_id", "")
+    keyboard = template.get("keyboard")
+
+    # 替换占位符
+    today_str = datetime.now().strftime("%Y年%m月%d日")
+    markdown_content = markdown_content.replace("{{date}}", today_str)
+    markdown_content = markdown_content.replace("{{version}}", VERSION)
+
+    # 根据 SUBSCRIPTION_QPM 计算每条消息的间隔（秒）
+    qpm = SUBSCRIPTION_QPM if SUBSCRIPTION_QPM > 0 else 60
+    interval = 60.0 / qpm  # 每条消息至少间隔 interval 秒
+
+    log.info(f"开始向 {len(subscriptions)} 个群发送每日订阅消息（频率限制: {qpm} QPM, 间隔 {interval:.1f}s）")
+
+    success_count = 0
+    fail_count = 0
+
+    for group_openid, group_digit_id, expires_at in subscriptions:
+        try:
+            msg_id = await msg_id_generator.next_id()
+            payload = {
+                "content": "markdown",
+                "msg_type": 2,
+                "msg_id": msg_id,
+                "msg_seq": 1,
+                "markdown": {"content": markdown_content}
+            }
+            if template_id:
+                payload["markdown"]["custom_template_id"] = template_id
+            if keyboard:
+                payload["keyboard"] = keyboard
+
+            result = await call_open_api("POST", f"/v2/groups/{group_openid}/messages", payload, sleepy=False)
+            if isinstance(result, dict) and result.get("send_failed"):
+                err_code = result.get("err_code", "unknown")
+                err_msg = result.get("message", "未知错误")
+                trace_id = result.get("trace_id", "")
+                log.warning(
+                    f"向群 {group_digit_id} 发送订阅消息失败: "
+                    f"err_code={err_code}, message={err_msg}, trace_id={trace_id}"
+                )
+                fail_count += 1
+            else:
+                log.success(f"已向群 {group_digit_id} 发送每日订阅消息")
+                success_count += 1
+        except Exception as e:
+            import traceback
+            log.error(f"向群 {group_digit_id} 发送订阅消息异常: {e}\n{traceback.format_exc()}")
+            fail_count += 1
+        # 按 SUBSCRIPTION_QPM 限制频率
+        await asyncio.sleep(interval)
+
+    log.success(f"每日订阅消息推送完成: 成功 {success_count}, 失败 {fail_count}, 共 {len(subscriptions)} 个群")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await init_subscription_table()
     await refresh_access_token()
     scheduler = AsyncIOScheduler()
     scheduler.add_job(flush_usage_to_db, trigger=IntervalTrigger(minutes=10))
     scheduler.add_job(reset_usage_today, trigger=CronTrigger(hour=0, minute=0))
     scheduler.add_job(refresh_access_token, trigger=IntervalTrigger(seconds=30))
+    scheduler.add_job(send_daily_subscription, trigger=CronTrigger(hour=8, minute=0))
     scheduler.start()
     end_time = time.time()
     log.success(f"Floodgate已启动，耗时: {end_time - start_time:.2f} 秒")
@@ -194,6 +264,8 @@ async def openapi_webhook(request: Request):
                 log.success(f"机器人被移出群聊，群: {group_id}，操作者: {op_id}")
             else:
                 log.success(f"机器人被移出群聊，群: {group_openid}，操作者: {op_openid}")
+            # 自动取消该群的订阅
+            await remove_group_subscription(group_openid)
             ob_data = await parse_group_del(d)
         elif t == "GROUP_MSG_RECEIVE":
             group_openid = d.get("group_openid", "unknown")

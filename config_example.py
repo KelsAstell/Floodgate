@@ -70,6 +70,11 @@ SUBSCRIBED_MESSAGE_TYPES = ["GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE", "
 GM_BLACKLIST = []                                             # 全量消息(GROUP_MESSAGE_CREATE)群组列表，数字群ID列表；可使用 ~gm_blacklist 命令管理
 GM_WHITELIST_MODE = False                                     # 全量消息列表模式开关：False=黑名单模式（列表中的群被拦截），True=白名单模式（不在列表中的群被拦截）
 
+#—————————————————订阅推送配置——————————————————#
+SUBSCRIPTION_VALIDITY_DAYS = 30                              # 订阅有效期（天），设为 0 表示永不过期
+SUBSCRIPTION_QPM = 60                                        # 每日订阅推送频率限制（条/分钟），不超过 60
+SUBSCRIPTION_MESSAGE_FILE = "subscription_message.json"      # 订阅推送消息模板文件路径，支持 Markdown
+
 #—————————————————数据库配置——————————————————#
 # 数据库类型: sqlite 或 postgresql
 DATABASE_TYPE = "sqlite"
