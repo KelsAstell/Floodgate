@@ -1,11 +1,11 @@
 import re
 import time
 
-from config import BOT_NAME, TRANSPARENT_OPENID, ACHIEVEMENT_PERSIST, OAUTH_LOGIN_TOKEN_TTL, log
+from config import BOT_NAME, TRANSPARENT_OPENID, ACHIEVEMENT_PERSIST, OAUTH_LOGIN_TOKEN_TTL, VERSION, log
 from openapi.database import get_dau_today, get_achievement_list, get_or_create_digit_id, get_gm_blacklist, add_group_to_gm_blacklist, remove_group_from_gm_blacklist, get_gm_whitelist, add_group_to_gm_whitelist, remove_group_from_gm_whitelist
 from openapi.draw_ach import generate_achievement_page_image
 from openapi.network import post_floodgate_message, post_im_message, post_floodgate_rich_message, post_floodgate_markdown_message
-from openapi.subscription import subscribe_group, renew_subscription, unsubscribe_group, is_subscribed
+from openapi.subscription import subscribe_group, unsubscribe_group, is_subscribed, load_subscription_message
 from openapi.tool import is_user_admin, set_maintaining_message, get_health, get_dau_history
 
 
@@ -181,9 +181,70 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
                 )
             # 测试通过，写入数据库
             success, msg = await subscribe_group(group_openid, group_digit_id, d.get("author", {}).get("union_openid", ""))
-        elif parts[1].strip() == "renew":
-            # ~subscribe renew - 续期
-            success, msg = await renew_subscription(group_openid, group_digit_id)
+        elif parts[1].strip() == "test":
+            # ~subscribe test - 管理员专用，发送订阅内容到当前群
+            if not await is_user_admin(d):
+                return await post_floodgate_message("权限不足：仅管理员可执行订阅测试", d)
+
+            from datetime import datetime
+            from openapi.network import call_open_api
+
+            template = await load_subscription_message()
+            markdown_content = template.get("content", "订阅消息模板为空，请检查 subscription_message.json")
+            template_id = template.get("template_id", "")
+            keyboard = template.get("keyboard")
+
+            # 读取本地图片尺寸，计算等比缩放后的高度（宽度固定 300）
+            def _get_jpeg_height(filepath: str, target_width: int = 300) -> int | None:
+                try:
+                    with open(filepath, 'rb') as f:
+                        header = f.read(4096)
+                    if header[:2] != b'\xff\xd8':
+                        return None
+                    pos = 2
+                    while pos < len(header) - 4:
+                        if header[pos] != 0xff:
+                            pos += 1
+                            continue
+                        marker = header[pos + 1]
+                        if marker in (0xC0, 0xC1, 0xC2):
+                            h = int.from_bytes(header[pos + 5:pos + 7], 'big')
+                            w = int.from_bytes(header[pos + 7:pos + 9], 'big')
+                            return round(h * target_width / w)
+                        pos += 2 + int.from_bytes(header[pos + 2:pos + 4], 'big')
+                    return None
+                except Exception:
+                    return None
+
+            img_height = _get_jpeg_height(r"E:\DeluxeBOT\oss-bucket\deluxe\randompic\furcon_timeline.jpg")
+
+            # 替换占位符
+            today_str = datetime.now().strftime("%Y年%m月%d日")
+            today_8am = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
+            markdown_content = markdown_content.replace("{{date}}", today_str)
+            markdown_content = markdown_content.replace("{{version}}", VERSION)
+            markdown_content = markdown_content.replace("{{t}}", str(int(today_8am.timestamp())))
+            markdown_content = markdown_content.replace("{{img_height}}", str(img_height) if img_height else "3176")
+
+            # 发送主动消息（不传 msg_id/msg_seq，由平台自动生成）
+            payload = {
+                "content": "markdown",
+                "msg_type": 2,
+                "markdown": {"content": markdown_content}
+            }
+            if template_id:
+                payload["markdown"]["custom_template_id"] = template_id
+            if keyboard:
+                payload["keyboard"] = keyboard
+
+            try:
+                result = await call_open_api("POST", f"/v2/groups/{group_openid}/messages", payload, sleepy=False)
+                if isinstance(result, dict) and result.get("send_failed"):
+                    err_msg = result.get("message", "未知错误")
+                    return await post_floodgate_message(f"❌ 订阅内容测试发送失败: {err_msg}", d)
+                return await post_floodgate_message("✅ 订阅内容测试发送成功！", d)
+            except Exception as e:
+                return await post_floodgate_message(f"❌ 订阅内容测试发送异常: {e}", d)
         elif parts[1].strip() == "status":
             # ~subscribe status - 查看状态
             subscribed = await is_subscribed(group_openid)
@@ -200,7 +261,7 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
             else:
                 msg = "📋 订阅状态：未订阅 ❌\n使用 ~subscribe 进行订阅"
         else:
-            msg = "未知子命令。用法：\n~subscribe - 订阅\n~subscribe renew - 续期\n~subscribe status - 查看状态"
+            msg = "未知子命令。用法：\n~subscribe - 订阅\n~subscribe status - 查看状态\n~subscribe test - 管理员测试发送订阅内容"
         return await post_floodgate_message(msg, d)
     elif cmd.startswith("unsubscribe"):
         # 取消订阅命令：仅群主可执行

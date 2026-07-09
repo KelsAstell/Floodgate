@@ -79,7 +79,7 @@ async def subscribe_group(group_openid: str, group_digit_id: int, user_openid: s
 
     # 如果已存在记录，提示已订阅
     if await is_subscribed(group_openid):
-        return False, f"本群已订阅！\n使用 ~subscribe renew 可续期，~unsubscribe 可取消订阅。"
+        return False, f"本群已订阅！\n使用 ~subscribe status 查看状态，~unsubscribe 可取消订阅。"
 
     is_pg = db_manager.get_type() == "postgresql"
     async with pool.connection() as db:
@@ -105,47 +105,7 @@ async def subscribe_group(group_openid: str, group_digit_id: int, user_openid: s
     return True, (
         f"订阅成功！每天早 8:00 将自动推送。\n"
         f"{validity_msg}"
-        f"使用 ~subscribe renew 可续期，使用 ~unsubscribe 可取消订阅。"
-    )
-
-
-async def renew_subscription(group_openid: str, group_digit_id: int) -> tuple:
-    """续期订阅，返回 (是否成功, 消息文本)"""
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-
-    # 查询当前过期时间
-    expiry = await _get_subscription_expiry(group_openid)
-    if expiry is None:
-        return False, "本群尚未订阅，请先使用 ~subscribe 订阅。"
-
-    try:
-        old_expires = datetime.strptime(expiry, "%Y-%m-%d %H:%M:%S")
-    except Exception:
-        old_expires = now
-
-    # 从当前时间或原过期时间（取更晚的）开始续期
-    base = max(now, old_expires)
-    new_expires = base + timedelta(days=SUBSCRIPTION_VALIDITY_DAYS)
-    new_expires_str = new_expires.strftime("%Y-%m-%d %H:%M:%S")
-
-    is_pg = db_manager.get_type() == "postgresql"
-    async with pool.connection() as db:
-        if is_pg:
-            await db.execute(
-                'UPDATE subscriptions SET subscribed_at = $1, expires_at = $2 WHERE group_openid = $3',
-                now_str, new_expires_str, group_openid
-            )
-        else:
-            await db.execute(
-                'UPDATE subscriptions SET subscribed_at = ?, expires_at = ? WHERE group_openid = ?',
-                (now_str, new_expires_str, group_openid)
-            )
-            await db.commit()
-
-    log.success(f"群 {group_digit_id} 已续期，有效期至 {new_expires_str}")
-    return True, (
-        f"续期成功！有效期至 {new_expires_str}（{SUBSCRIPTION_VALIDITY_DAYS}天）。"
+        f"使用 ~subscribe status 查看状态，~unsubscribe 可取消订阅。"
     )
 
 
@@ -186,30 +146,6 @@ async def get_all_active_subscriptions() -> list:
             rows = await cursor.fetchall()
             await cursor.close()
     return [(row[0], row[1], row[2]) for row in rows] if rows else []
-
-
-async def cleanup_expired_subscriptions() -> int:
-    """清理过期订阅，返回清理数量"""
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    is_pg = db_manager.get_type() == "postgresql"
-    async with pool.connection() as db:
-        if is_pg:
-            result = await db.execute(
-                'DELETE FROM subscriptions WHERE expires_at <= $1',
-                now
-            )
-            # PostgreSQL execute 返回 "DELETE N" 字符串
-            count = int(result.split()[-1]) if result else 0
-        else:
-            cursor = await db.execute(
-                'DELETE FROM subscriptions WHERE expires_at <= ?',
-                (now,)
-            )
-            await db.commit()
-            count = cursor.rowcount if hasattr(cursor, 'rowcount') else 0
-    if count:
-        log.info(f"已清理 {count} 个过期订阅")
-    return count
 
 
 async def remove_group_subscription(group_openid: str):

@@ -135,7 +135,7 @@ async def refresh_access_token():
 async def send_daily_subscription():
     """每日早 8:00 向所有订阅群发送订阅消息，频率不超过 SUBSCRIPTION_QPM"""
     from datetime import datetime
-    from openapi.network import call_open_api, msg_id_generator
+    from openapi.network import call_open_api
 
     subscriptions = await get_all_active_subscriptions()
     if not subscriptions:
@@ -191,12 +191,9 @@ async def send_daily_subscription():
 
     for group_openid, group_digit_id, expires_at in subscriptions:
         try:
-            msg_id = await msg_id_generator.next_id()
             payload = {
                 "content": "markdown",
                 "msg_type": 2,
-                "msg_id": msg_id,
-                "msg_seq": 1,
                 "markdown": {"content": markdown_content}
             }
             if template_id:
