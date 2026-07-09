@@ -55,6 +55,10 @@ oauth_message_cache = TTLCache(maxsize=5000, ttl=120)
 # 结构: {(user_id, group_id): event_type}
 _event_type_cache = TTLCache(maxsize=500, ttl=30)
 
+# 全量消息警告计数缓存（记录非白名单群已警告次数）
+# 结构: {group_id: warning_count}
+_gm_warning_cache = TTLCache(maxsize=1000, ttl=86400)
+
 
 async def process_oauth_message(message: dict) -> dict:
     """
@@ -143,10 +147,38 @@ async def send_daily_subscription():
     template_id = template.get("template_id", "")
     keyboard = template.get("keyboard")
 
+    # 读取本地图片尺寸，计算等比缩放后的高度（宽度固定 300）
+    def _get_jpeg_height(filepath: str, target_width: int = 300) -> int | None:
+        """读取 JPEG 文件头获取尺寸，返回等比缩放后的高度"""
+        try:
+            with open(filepath, 'rb') as f:
+                header = f.read(4096)
+            if header[:2] != b'\xff\xd8':
+                return None
+            pos = 2
+            while pos < len(header) - 4:
+                if header[pos] != 0xff:
+                    pos += 1
+                    continue
+                marker = header[pos + 1]
+                if marker in (0xC0, 0xC1, 0xC2):  # SOF0/SOF1/SOF2
+                    h = int.from_bytes(header[pos + 5:pos + 7], 'big')
+                    w = int.from_bytes(header[pos + 7:pos + 9], 'big')
+                    return round(h * target_width / w)
+                pos += 2 + int.from_bytes(header[pos + 2:pos + 4], 'big')
+            return None
+        except Exception:
+            return None
+
+    img_height = _get_jpeg_height(r"E:\DeluxeBOT\oss-bucket\deluxe\randompic\furcon_timeline.jpg")
+
     # 替换占位符
     today_str = datetime.now().strftime("%Y年%m月%d日")
+    today_8am = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
     markdown_content = markdown_content.replace("{{date}}", today_str)
     markdown_content = markdown_content.replace("{{version}}", VERSION)
+    markdown_content = markdown_content.replace("{{t}}", str(int(today_8am.timestamp())))
+    markdown_content = markdown_content.replace("{{img_height}}", str(img_height) if img_height else "3176")
 
     # 根据 SUBSCRIPTION_QPM 计算每条消息的间隔（秒）
     qpm = SUBSCRIPTION_QPM if SUBSCRIPTION_QPM > 0 else 60
@@ -331,15 +363,15 @@ async def openapi_webhook(request: Request):
                     else:
                         should_block = await is_group_in_gm_blacklist(check_id)
                     if should_block:
-                        import random
-                        if random.random() < 1:
+                        warning_count = _gm_warning_cache.get(check_id, 0)
+                        if warning_count < GM_WARNING_MAX_COUNT:
                             warning_msg = "暂不支持在本群接收全量消息，请群主在手机端点击机器人头像，将\"机器人可获取的群聊消息范围\"修改为默认的\"仅获取@机器人的消息\"，或向艾斯申请白名单"
                             await post_floodgate_message(warning_msg, d)
-                        if GM_WHITELIST_MODE:
-                            log.success(f"群 {check_id} 不在全量消息白名单中，已拦截 GROUP_MESSAGE_CREATE 事件")
+                            _gm_warning_cache[check_id] = warning_count + 1
+                            log.success(f"群 {check_id} 全量消息警告 ({warning_count + 1}/{GM_WARNING_MAX_COUNT})")
                         else:
-                            log.success(f"群 {check_id} 在全量消息黑名单中，已拦截 GROUP_MESSAGE_CREATE 事件")
-                        return {"status": "gm_blacklisted", "op": op}
+                            log.debug(f"群 {check_id} 全量消息已达警告上限，静默丢弃")
+                        return {"status": "gm_blocked", "op": op}
             
             # 检查是否为"同意"命令
             is_agree_msg = content_str == "同意" or content_str.startswith("/agree")

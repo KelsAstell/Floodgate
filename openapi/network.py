@@ -144,6 +144,15 @@ async def call_open_api(method: str, endpoint: str, payload: dict = None, sleepy
                                 "message": err_data.get("message"),
                                 "trace_id": err_data.get("trace_id"),
                             }
+                        elif err_code == 40034105:  # 主动消息失败，无权限（重试无效，直接返回）
+                            SEND_FAILED_DICT["success"] += 1
+                            return {
+                                "id": None,
+                                "send_failed": True,
+                                "err_code": err_code,
+                                "message": err_data.get("message"),
+                                "trace_id": err_data.get("trace_id"),
+                            }
                     
                     # 决定是否重试
                     if attempt < retries - 1:
@@ -278,7 +287,7 @@ async def post_guild_image(data):
         return {"error": f"Upload failed: {e}"}
 
 
-async def post_floodgate_message(msg, d):
+async def post_floodgate_message(msg, d, suppress_add_return=False):
     user_openid = d.get("author", {}).get("union_openid")
     group_openid = d.get("group_openid",d.get("channel_id"))
     if group_openid:
@@ -286,7 +295,8 @@ async def post_floodgate_message(msg, d):
         if str(group_openid).isdigit():
             endpoint = "/channels"
         else:
-            msg = "\n" +  msg
+            if not suppress_add_return and not d.get("_suppress_add_return"):
+                msg = "\n" +  msg
             endpoint = "/v2/groups"
     else:
         endpoint = "/v2/users"
@@ -294,7 +304,7 @@ async def post_floodgate_message(msg, d):
     msg_id = d.get("id", "0")
     return await call_open_api("POST", f"{endpoint}/{union_id}/messages", {"content": msg, "msg_type": 0, "msg_id": msg_id,"msg_seq": await get_next_msg_seq(msg_id)}, False)
 
-async def post_floodgate_rich_message(msg, image, d):
+async def post_floodgate_rich_message(msg, image, d, suppress_add_return=False):
     user_openid = d.get("author", {}).get("union_openid")
     group_openid = d.get("group_openid",d.get("channel_id"))
     if group_openid:
@@ -302,7 +312,8 @@ async def post_floodgate_rich_message(msg, image, d):
         if str(group_openid).isdigit():
             endpoint = "/channels"
         else:
-            msg = "\n" +  msg
+            if not suppress_add_return and not d.get("_suppress_add_return"):
+                msg = "\n" +  msg
             endpoint = "/v2/groups"
     else:
         endpoint = "/v2/users"

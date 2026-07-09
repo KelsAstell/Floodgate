@@ -22,7 +22,7 @@ async def init_subscription_table():
 async def load_subscription_message() -> dict:
     """加载订阅消息模板，支持 {{date}} 和 {{version}} 占位符替换"""
     defaults = {
-        "content": "## ☀️ 早安！\n\n今天是 {{date}}\n\n---\n\n这是默认的订阅推送消息。\n请在 `subscription_message.json` 中自定义内容。"
+        "content": "这是默认的订阅推送消息。\n请在 `subscription_message.json` 中自定义内容。"
     }
     if not os.path.exists(SUBSCRIPTION_MESSAGE_FILE):
         log.warning(f"订阅消息文件 {SUBSCRIPTION_MESSAGE_FILE} 不存在，使用默认消息")
@@ -103,7 +103,7 @@ async def subscribe_group(group_openid: str, group_digit_id: int, user_openid: s
 
     log.success(f"群 {group_digit_id} 已订阅，有效期至 {expires_at}")
     return True, (
-        f"✅ 订阅成功！每天早 8:00 将自动推送订阅消息。\n"
+        f"订阅成功！每天早 8:00 将自动推送。\n"
         f"{validity_msg}"
         f"使用 ~subscribe renew 可续期，使用 ~unsubscribe 可取消订阅。"
     )
@@ -145,7 +145,7 @@ async def renew_subscription(group_openid: str, group_digit_id: int) -> tuple:
 
     log.success(f"群 {group_digit_id} 已续期，有效期至 {new_expires_str}")
     return True, (
-        f"✅ 续期成功！有效期至 {new_expires_str}（{SUBSCRIPTION_VALIDITY_DAYS}天）。"
+        f"续期成功！有效期至 {new_expires_str}（{SUBSCRIPTION_VALIDITY_DAYS}天）。"
     )
 
 
@@ -170,7 +170,7 @@ async def unsubscribe_group(group_openid: str, group_digit_id: int) -> tuple:
             await db.commit()
 
     log.success(f"群 {group_digit_id} 已取消订阅")
-    return True, "✅ 已取消订阅。"
+    return True, "已取消订阅。"
 
 
 async def get_all_active_subscriptions() -> list:
