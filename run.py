@@ -17,7 +17,7 @@ from fastapi.responses import StreamingResponse
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id, get_or_create_digit_id, reset_usage_today, close_db_pool, add_achievement, get_achievement_list, get_achievement_stat, check_user_agreement, set_user_agreement, get_user_agreement_status, is_group_in_gm_blacklist
+from openapi.database import init_db, get_usage_count, flush_usage_to_db, get_union_id_by_digit_id, get_or_create_digit_id, reset_usage_today, close_db_pool, add_achievement, get_achievement_list, get_achievement_stat, check_user_agreement, set_user_agreement, get_user_agreement_status, is_group_in_gm_blacklist, is_group_in_gm_whitelist
 from openapi.encrypt import verifier
 from openapi.inner_cmd import parse_floodgate_cmd
 from openapi.oauth import oauth_manager
@@ -244,19 +244,29 @@ async def openapi_webhook(request: Request):
             # 记录事件类型，供 WebSocket 响应时查找
             _event_type_cache[(user_id, group_id)] = t
             
-            # 全量消息黑名单检查：GROUP_MESSAGE_CREATE 且群在黑名单中，且非 Floodgate 内部命令
+            # 全量消息列表检查：GROUP_MESSAGE_CREATE 且群受列表限制，且非 Floodgate 内部命令
+            # GM_WHITELIST_MODE=False 时为黑名单模式（列表中的群被拦截）
+            # GM_WHITELIST_MODE=True 时为白名单模式（不在列表中的群被拦截）
             if t == "GROUP_MESSAGE_CREATE" and group_id:
-                # 检查是否为 Floodgate 内部命令（以 ~ 开头），内部命令不受黑名单限制
+                # 检查是否为 Floodgate 内部命令（以 ~ 开头），内部命令不受列表限制
                 at_stripped = re.sub(r'<@!?[0-9A-Za-z]+>\s*', '', d.get("content", "")).strip()
                 if not at_stripped.startswith("~"):
-                    # 统一使用数字ID进行黑名单检查（TRANSPARENT_OPENID 模式下需转换）
+                    # 统一使用数字ID进行列表检查（TRANSPARENT_OPENID 模式下需转换）
                     check_id = str(group_id) if not TRANSPARENT_OPENID else str(await get_or_create_digit_id(group_openid))
-                    if await is_group_in_gm_blacklist(check_id):
+                    # 白名单模式：不在白名单表中则拦截；黑名单模式：在黑名单表中则拦截
+                    if GM_WHITELIST_MODE:
+                        should_block = not await is_group_in_gm_whitelist(check_id)
+                    else:
+                        should_block = await is_group_in_gm_blacklist(check_id)
+                    if should_block:
                         import random
-                        if random.random() < 0.1:
-                            warning_msg = "机器人暂不支持在本群接收全量消息，请群主在手机端点击机器人头像，将\"机器人可获取的群聊消息范围\"修改为\"仅获取@机器人的消息\"，或直接移除本机器人"
+                        if random.random() < 1:
+                            warning_msg = "暂不支持在本群接收全量消息，请群主在手机端点击机器人头像，将\"机器人可获取的群聊消息范围\"修改为默认的\"仅获取@机器人的消息\"，或向艾斯申请白名单"
                             await post_floodgate_message(warning_msg, d)
-                        log.success(f"群 {check_id} 在全量消息黑名单中，已拦截 GROUP_MESSAGE_CREATE 事件")
+                        if GM_WHITELIST_MODE:
+                            log.success(f"群 {check_id} 不在全量消息白名单中，已拦截 GROUP_MESSAGE_CREATE 事件")
+                        else:
+                            log.success(f"群 {check_id} 在全量消息黑名单中，已拦截 GROUP_MESSAGE_CREATE 事件")
                         return {"status": "gm_blacklisted", "op": op}
             
             # 检查是否为"同意"命令
