@@ -484,6 +484,102 @@ async def post_im_message(user_id, group_id, message, suppress_add_return=False)
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages",{"content": "暂不支持该消息类型", "msg_type": 0, "msg_id": msg_id,"msg_seq": msg_seq},False)
 
 
+async def send_active_group_message(group_openid: str, message: dict) -> dict:
+    """
+    向指定群发送主动消息（不需要 msg_id/msg_seq），用于 /send_active_message 接口。
+
+    Args:
+        group_openid: 群的 OpenID
+        message: convert_cq_to_openapi_message 处理后的消息字典
+
+    Returns:
+        OpenAPI 响应字典
+    """
+    endpoint = f"/v2/groups/{group_openid}/messages"
+    if message.get("type") == "text":
+        payload = {"content": message["text"], "msg_type": 0}
+        return await call_open_api("POST", endpoint, payload, sleepy=False)
+    elif message.get("type") == "rich_text":
+        segments = message["segments"]
+        image_info_list = []
+        text = ""
+        for segment in segments:
+            if segment["type"] == "text":
+                text += segment["text"]
+            elif segment["type"] == "image":
+                url = segment["url"]
+                if url.startswith("base64://"):
+                    ret = await call_open_api("POST", f"/v2/groups/{group_openid}/files", {"file_type": 1, "file_data": url[9:]}, sleepy=False)
+                    if isinstance(ret, dict) and ret.get("send_failed"):
+                        return ret
+                    image_info_list.append(ret["file_info"])
+                elif url.startswith("http://") or url.startswith("https://"):
+                    ret = await call_open_api("POST", f"/v2/groups/{group_openid}/files", {"file_type": 1, "url": url}, sleepy=False)
+                    if isinstance(ret, dict) and ret.get("send_failed"):
+                        return ret
+                    image_info_list.append(ret["file_info"])
+                elif url.startswith("file:///"):
+                    file_path = url.removeprefix("file:///")
+                    import base64 as _b64
+                    with open(file_path, "rb") as image_file:
+                        encoded_str = _b64.b64encode(image_file.read()).decode("utf-8")
+                    ret = await call_open_api("POST", f"/v2/groups/{group_openid}/files", {"file_type": 1, "file_data": encoded_str}, sleepy=False)
+                    if isinstance(ret, dict) and ret.get("send_failed"):
+                        return ret
+                    image_info_list.append(ret["file_info"])
+        # 多张图片：先单独发送前面的图片
+        if len(image_info_list) > 1:
+            for image in image_info_list[:-1]:
+                payload = {"msg_type": 7, "media": {"file_info": image}}
+                ret = await call_open_api("POST", endpoint, payload, sleepy=False)
+                if isinstance(ret, dict) and ret.get("send_failed"):
+                    return ret
+        if not len(image_info_list):
+            payload = {"content": text, "msg_type": 0}
+        else:
+            payload = {"content": text, "msg_type": 7, "media": {"file_info": image_info_list[-1]}}
+        return await call_open_api("POST", endpoint, payload, sleepy=True)
+    elif message.get("type") == "markdown":
+        content = message.get("content")
+        payload = {"content": "markdown", "msg_type": 2}
+        if message.get("keyboard"):
+            payload["keyboard"] = message.get("keyboard")
+        if content:
+            payload["markdown"] = content
+        return await call_open_api("POST", endpoint, payload, sleepy=False)
+    elif message.get("type") == "markdown_keyboard":
+        payload = {
+            "content": "markdown",
+            "msg_type": 2,
+            "keyboard": message.get("keyboard")
+        }
+        return await call_open_api("POST", endpoint, payload, sleepy=False)
+    elif message.get("type") == "ark":
+        payload = {"ark": message["ark"], "msg_type": 3}
+        return await call_open_api("POST", endpoint, payload, sleepy=False)
+    elif message.get("type") == "file":
+        file_type = message.get("file_type", 1)
+        data = message.get("data", "")
+        if data.startswith("base64://"):
+            ret = await call_open_api("POST", f"/v2/groups/{group_openid}/files", {"file_type": file_type, "file_data": data[9:]}, sleepy=False)
+        elif data.startswith("http://") or data.startswith("https://"):
+            ret = await call_open_api("POST", f"/v2/groups/{group_openid}/files", {"file_type": file_type, "url": data}, sleepy=False)
+        elif data.startswith("file:///"):
+            file_path = data.removeprefix("file:///")
+            import base64 as _b64
+            with open(file_path, "rb") as f:
+                encoded_str = _b64.b64encode(f.read()).decode("utf-8")
+            ret = await call_open_api("POST", f"/v2/groups/{group_openid}/files", {"file_type": file_type, "file_data": encoded_str}, sleepy=False)
+        else:
+            return await call_open_api("POST", endpoint, {"content": "传入的文件参数不是正确的格式", "msg_type": 0}, sleepy=False)
+        if isinstance(ret, dict) and ret.get("send_failed"):
+            return ret
+        payload = {"msg_type": 7, "media": {"file_info": ret.get("file_info")}}
+        return await call_open_api("POST", endpoint, payload, sleepy=False)
+    else:
+        return await call_open_api("POST", endpoint, {"content": "暂不支持该消息类型", "msg_type": 0}, sleepy=False)
+
+
 async def delete_im_message(user_id, group_id, message_id):
     endpoint = "/v2/groups" if group_id else "/v2/users"
     id = group_id if group_id else user_id
