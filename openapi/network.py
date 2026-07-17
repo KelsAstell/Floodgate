@@ -454,7 +454,11 @@ async def post_im_message(user_id, group_id, message, suppress_add_return=False)
             payload["keyboard"] = message.get("keyboard")
         # 如果content不为空，添加markdown字段
         if content:
-            payload["markdown"] = content
+            # 若 content 为字符串，包装为 {"content": content}；若已是 dict（如模板参数）则直接使用
+            if isinstance(content, str):
+                payload["markdown"] = {"content": content}
+            else:
+                payload["markdown"] = content
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload)
     elif message.get("type") == "file":
         if message.get("file_type") == 3:  # silk语音
@@ -545,7 +549,11 @@ async def send_active_group_message(group_openid: str, message: dict) -> dict:
         if message.get("keyboard"):
             payload["keyboard"] = message.get("keyboard")
         if content:
-            payload["markdown"] = content
+            # 若 content 为字符串，包装为 {"content": content}；若已是 dict（如模板参数）则直接使用
+            if isinstance(content, str):
+                payload["markdown"] = {"content": content}
+            else:
+                payload["markdown"] = content
         return await call_open_api("POST", endpoint, payload, sleepy=False)
     elif message.get("type") == "markdown_keyboard":
         payload = {
