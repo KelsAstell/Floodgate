@@ -792,3 +792,26 @@ async def delete_im_message(user_id, group_id, message_id):
     if str(union_id).isdigit():
         endpoint = "/channels"
     return await call_open_api("DELETE", f"{endpoint}/{union_id}/messages/{message_id}?hidetip=true", None)
+
+
+async def get_group_info(group_openid: str) -> dict:
+    """
+    获取指定群的基本信息。
+
+    API: GET /v2/groups/{group_openid}/info
+    频率限制: 30 QPM（仅限白名单机器人使用，错误码 11253）
+
+    Args:
+        group_openid: 群的 OpenID
+
+    Returns:
+        群信息字典，包含:
+        - group_openid: 群 OpenID
+        - group_name: 群名称
+        - group_finger_memo: 群简介
+        - group_class_text: 群分类
+        - group_tags: 群标签列表
+        - group_member_num: 群成员人数
+    """
+    endpoint = f"/v2/groups/{group_openid}/info"
+    return await call_open_api("GET", endpoint, None, sleepy=False)

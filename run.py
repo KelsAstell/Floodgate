@@ -24,7 +24,7 @@ from openapi.inner_cmd import parse_floodgate_cmd
 from openapi.oauth import oauth_manager
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add, parse_group_del, parse_group_msg_receive, parse_group_msg_reject
 from openapi.token_manage import token_manager
-from openapi.network import post_im_message, delete_im_message, post_guild_image, post_floodgate_message, close_http_session, send_active_group_message, post_upload_file
+from openapi.network import post_im_message, delete_im_message, post_guild_image, post_floodgate_message, close_http_session, send_active_group_message, post_upload_file, get_group_info
 from openapi.tool import check_config, get_health, get_maintaining_message, show_welcome, rate_limit
 from config import *
 
@@ -645,6 +645,39 @@ async def avatar(id: int):
     return {
         "url": f"https://q.qlogo.cn/qqapp/{BOT_APPID}/{openid}/640"
     }
+
+
+@app.get("/group_info")
+async def group_info(group_openid: str | None = None, group_id: int | None = None):
+    """
+    获取指定群的基本信息。
+
+    支持两种查询方式:
+    - group_openid: 直接传入群 OpenID
+    - group_id: 传入数字群 ID，系统自动转换为 OpenID 后查询
+
+    API 文档: https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_info.get.html
+    """
+    if not group_openid and group_id is None:
+        raise HTTPException(status_code=400, detail="请提供 group_openid 或 group_id 参数")
+
+    target_openid = group_openid
+    if not target_openid:
+        if TRANSPARENT_OPENID:
+            target_openid = str(group_id)
+        else:
+            target_openid = await get_union_id_by_digit_id(group_id)
+            if not target_openid:
+                raise HTTPException(status_code=404, detail=f"未找到群 {group_id} 的 OpenID 映射")
+
+    try:
+        result = await get_group_info(target_openid)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"获取群信息失败 (group_openid={target_openid}): {e}")
+        raise HTTPException(status_code=500, detail=f"获取群信息失败: {e}")
 
 
 # OAuth登录接口
