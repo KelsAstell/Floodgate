@@ -50,6 +50,8 @@ VERSION = "0.0.3"                                      # 版本号，小猫，�
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | <level>{level: <8}</level> | <level>{message}</level>"
 from loguru import logger as log                            # 不要删，会让 Floodgate 鼠掉，你可以逝一下
 SEQ_CACHE_SIZE = 300                                        # 消息队列缓存大小，如果你的BOT涉及到一个事件多次回复，可能需要调的很大，如果没有这样的需求，300足矣
+UPLOAD_DEFAULT_GROUP_TARGET_ID = ""  # 上传文件时群聊场景的默认 target_id，不填时需在请求中显式提供
+UPLOAD_DEFAULT_USER_TARGET_ID = ""   # 上传文件时私聊场景的默认 target_id，不填时需在请求中显式提供
 STAT_LOG = "logs/usage_summary.json"                        # 保存你的DAU和DAI记录
 STAT_LOG_MAX_DAYS = 7                                       # DAU和DAI的最长保存期限，单位为天
 

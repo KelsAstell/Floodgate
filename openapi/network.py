@@ -317,8 +317,12 @@ async def post_upload_file(data):
         return {"error": "必须提供 file_data 或 file_path 参数"}
     if target_type not in ("user", "group"):
         return {"error": "target_type 必须是 'user' 或 'group'"}
+    # target_id 可选，不提供时使用 config 中的默认目标
     if not target_id:
-        return {"error": "必须提供 target_id 参数"}
+        if target_type == "group":
+            target_id = UPLOAD_DEFAULT_GROUP_TARGET_ID
+        else:
+            target_id = UPLOAD_DEFAULT_USER_TARGET_ID
 
     # 读取文件数据
     try:
@@ -403,8 +407,8 @@ async def post_upload_file(data):
             log.error(f"[Upload File] 分片信息不完整: {part}")
             return {"error": f"分片信息不完整: {part}"}
 
-        # 计算分片数据范围
-        start = part_index * block_size
+        # 计算分片数据范围（part_index 是 1-based，需转为 0-based）
+        start = (part_index - 1) * block_size
         end = min(start + part_block_size, file_size)
         chunk = raw_bytes[start:end]
         chunk_md5 = hashlib.md5(chunk).hexdigest()
@@ -583,6 +587,9 @@ async def post_im_message(user_id, group_id, message, suppress_add_return=False)
                         if isinstance(ret, dict) and ret.get("send_failed"):
                             return ret
                         image_info_list.append(ret["file_info"])
+                else:
+                    # 直接透传 file_info（已上传的文件）
+                    image_info_list.append(segment["url"])
         if len(image_info_list) > 1:
             for image in image_info_list[:-1]:
                 payload = {"msg_type": 7, "media": {"file_info": image}, "msg_id": msg_id,
@@ -718,6 +725,9 @@ async def send_active_group_message(group_openid: str, message: dict) -> dict:
                     if isinstance(ret, dict) and ret.get("send_failed"):
                         return ret
                     image_info_list.append(ret["file_info"])
+                else:
+                    # 直接透传 file_info（已上传的文件）
+                    image_info_list.append(url)
         # 多张图片：先单独发送前面的图片
         if len(image_info_list) > 1:
             for image in image_info_list[:-1]:
