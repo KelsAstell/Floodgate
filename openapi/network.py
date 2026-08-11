@@ -287,6 +287,193 @@ async def post_guild_image(data):
         return {"error": f"Upload failed: {e}"}
 
 
+async def post_upload_file(data):
+    """
+    文件上传接口，支持分片上传到 QQ Bot 的单聊或群聊。
+
+    请求参数:
+        - file_type: int (1=图片, 2=视频, 3=语音, 4=文件)
+        - file_data: str (base64 编码的文件内容)
+        - file_path: str (本地文件路径)
+        - file_name: str (文件名，可选)
+        - target_type: str ("user" 或 "group")
+        - target_id: str (用户/群的 OpenID)
+
+    返回:
+        - 成功: {"file_uuid": "...", "file_info": "...", "ttl": 300}
+        - 失败: {"error": "..."}
+    """
+    file_type = data.get("file_type")
+    file_data = data.get("file_data", "")
+    file_path = data.get("file_path", "")
+    file_name = data.get("file_name", "")
+    target_type = data.get("target_type", "").lower()
+    target_id = data.get("target_id", "")
+
+    # 参数校验
+    if file_type not in (1, 2, 3, 4):
+        return {"error": "file_type 必须是 1(图片)、2(视频)、3(语音) 或 4(文件)"}
+    if not file_data and not file_path:
+        return {"error": "必须提供 file_data 或 file_path 参数"}
+    if target_type not in ("user", "group"):
+        return {"error": "target_type 必须是 'user' 或 'group'"}
+    if not target_id:
+        return {"error": "必须提供 target_id 参数"}
+
+    # 读取文件数据
+    try:
+        if file_data:
+            raw_bytes = base64.b64decode(file_data)
+        elif file_path:
+            if file_path.startswith("file:///"):
+                file_path = file_path.removeprefix("file:///")
+            with open(file_path, "rb") as f:
+                raw_bytes = f.read()
+    except (IOError, FileNotFoundError) as e:
+        log.error(f"文件读取失败: {e}")
+        return {"error": f"文件读取失败: {e}"}
+    except Exception as e:
+        log.error(f"base64 解码失败: {e}")
+        return {"error": f"base64 解码失败: {e}"}
+
+    file_size = len(raw_bytes)
+    if file_size == 0:
+        return {"error": "文件内容为空"}
+
+    # 自动推断文件名
+    if not file_name:
+        if file_path and not file_path.startswith("file:///"):
+            import os
+            file_name = os.path.basename(file_path)
+        else:
+            ext_map = {1: ".jpg", 2: ".mp4", 3: ".silk", 4: ".bin"}
+            file_name = f"upload{ext_map.get(file_type, '.bin')}"
+
+    # 计算文件校验值
+    file_md5 = hashlib.md5(raw_bytes).hexdigest()
+    file_sha1 = hashlib.sha1(raw_bytes).hexdigest()
+    # md5_10m: 文件前 10002432 字节（约 10MB）的 MD5
+    md5_10m = hashlib.md5(raw_bytes[:10002432]).hexdigest()
+
+    log.info(f"[Upload File] 准备上传: file_name={file_name}, file_type={file_type}, "
+             f"file_size={file_size}, target_type={target_type}, target_id={target_id}")
+
+    # 确定 API 前缀
+    api_prefix = f"/v2/{'groups' if target_type == 'group' else 'users'}/{target_id}"
+
+    # Step 1: 预上传
+    prepare_payload = {
+        "file_type": file_type,
+        "file_size": str(file_size),
+        "file_name": file_name,
+        "md5": file_md5,
+        "sha1": file_sha1,
+        "md5_10m": md5_10m,
+    }
+    try:
+        prepare_resp = await call_open_api("POST", f"{api_prefix}/upload_prepare", prepare_payload, sleepy=False)
+    except Exception as e:
+        log.error(f"[Upload File] 预上传失败: {e}")
+        return {"error": f"预上传失败: {e}"}
+
+    if not isinstance(prepare_resp, dict):
+        return {"error": f"预上传返回异常: {prepare_resp}"}
+
+    upload_id = prepare_resp.get("upload_id")
+    block_size_str = prepare_resp.get("block_size", "0")
+    parts = prepare_resp.get("parts", [])
+    upload_config = prepare_resp.get("upload_config", {})
+
+    if not upload_id or not parts:
+        log.error(f"[Upload File] 预上传响应缺少必要字段: {prepare_resp}")
+        return {"error": f"预上传响应异常: {prepare_resp}"}
+
+    block_size = int(block_size_str)
+    log.info(f"[Upload File] 预上传成功: upload_id={upload_id}, block_size={block_size}, "
+             f"分片数={len(parts)}")
+
+    # Step 2: 逐片上传到预签名 URL
+    session = await get_http_session()
+    for part in parts:
+        part_index = part.get("index")
+        presigned_url = part.get("presigned_url")
+        part_block_size = int(part.get("block_size", "0"))
+
+        if presigned_url is None or part_index is None:
+            log.error(f"[Upload File] 分片信息不完整: {part}")
+            return {"error": f"分片信息不完整: {part}"}
+
+        # 计算分片数据范围
+        start = part_index * block_size
+        end = min(start + part_block_size, file_size)
+        chunk = raw_bytes[start:end]
+        chunk_md5 = hashlib.md5(chunk).hexdigest()
+
+        log.debug(f"[Upload File] 上传分片 {part_index + 1}/{len(parts)}: "
+                  f"bytes {start}-{end}, size={len(chunk)}")
+
+        # PUT 到预签名 URL
+        try:
+            async with session.put(
+                presigned_url,
+                data=chunk,
+                ssl=False,
+                timeout=aiohttp.ClientTimeout(total=60)
+            ) as resp:
+                if resp.status not in (200, 201, 204):
+                    error_text = await resp.text()
+                    log.error(f"[Upload File] 分片 {part_index} PUT 失败: "
+                              f"status={resp.status}, error={error_text}")
+                    return {"error": f"分片 {part_index} 上传失败: HTTP {resp.status}"}
+        except Exception as e:
+            log.error(f"[Upload File] 分片 {part_index} PUT 异常: {e}")
+            return {"error": f"分片 {part_index} 上传异常: {e}"}
+
+        # Step 3: 通知分片完成
+        finish_payload = {
+            "upload_id": upload_id,
+            "part_index": part_index,
+            "block_size": str(len(chunk)),
+            "md5": chunk_md5,
+        }
+        try:
+            await call_open_api("POST", f"{api_prefix}/upload_part_finish", finish_payload, sleepy=False)
+        except Exception as e:
+            log.error(f"[Upload File] 分片 {part_index} 完成通知失败: {e}")
+            return {"error": f"分片 {part_index} 完成通知失败: {e}"}
+
+        log.debug(f"[Upload File] 分片 {part_index + 1}/{len(parts)} 上传完成")
+
+    # Step 4: 完成合并
+    merge_payload = {
+        "file_type": file_type,
+        "srv_send_msg": False,
+        "file_name": file_name,
+        "upload_id": upload_id,
+    }
+    try:
+        merge_resp = await call_open_api("POST", f"{api_prefix}/files", merge_payload, sleepy=False)
+    except Exception as e:
+        log.error(f"[Upload File] 合并完成失败: {e}")
+        return {"error": f"合并完成失败: {e}"}
+
+    if isinstance(merge_resp, dict) and merge_resp.get("send_failed"):
+        return {"error": f"合并失败: {merge_resp.get('message', '未知错误')}"}
+
+    file_uuid = merge_resp.get("file_uuid", "")
+    file_info = merge_resp.get("file_info", "")
+    ttl = merge_resp.get("ttl", 0)
+
+    log.success(f"[Upload File] 上传成功: file_uuid={file_uuid}, ttl={ttl}")
+    return {
+        "file_uuid": file_uuid,
+        "file_info": file_info,
+        "ttl": ttl,
+        "file_name": file_name,
+        "file_size": file_size,
+    }
+
+
 async def post_floodgate_message(msg, d, suppress_add_return=False):
     user_openid = d.get("author", {}).get("union_openid")
     group_openid = d.get("group_openid",d.get("channel_id"))

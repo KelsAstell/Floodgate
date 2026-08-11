@@ -2,6 +2,9 @@
 /Floodgate.iml
 /ids.json
 /storage.db
+/oauth_sessions.db
+/oauth_sessions.db-wal
+/oauth_sessions.db-shm
 Floodgate.bat
 warnings_and_errors.log
 .idea/.gitignore

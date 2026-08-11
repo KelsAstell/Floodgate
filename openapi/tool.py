@@ -50,6 +50,7 @@ async def show_welcome():
     log.success(f"{base_url}/avatar")
     log.success(f"{base_url}/user_stats")
     log.success(f"{base_url}/upload_image")
+    log.success(f"{base_url}/upload_file")
     log.success(f"{base_url}/docs")
     log.success("Repo: https://github.com/KelsAstell/Floodgate")
 

@@ -55,7 +55,7 @@ STAT_LOG_MAX_DAYS = 7                                       # DAU和DAI的最长
 
 #—————————————————OAuth配置（用于第三方客户端登录）——————————————————#
 OAUTH_LOGIN_TOKEN_TTL = 60                                 # 登录令牌有效期（秒），默认5分钟
-OAUTH_JWT_EXPIRY_DAYS = 15                                  # JWT有效期（天），默认15天
+OAUTH_JWT_EXPIRY_DAYS = 30                                  # JWT有效期（天），需≥DeluxeWiki的REFRESH_TOKEN_EXPIRE_DAYS(30天)，避免本地可续期但Bot JWT已失效
 OAUTH_LOGIN_TOKEN_LENGTH = 16                               # 登录令牌长度（字符），建议 >= 16
 
 #—————————————————用户协议配置——————————————————#

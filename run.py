@@ -24,7 +24,7 @@ from openapi.inner_cmd import parse_floodgate_cmd
 from openapi.oauth import oauth_manager
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add, parse_group_del, parse_group_msg_receive, parse_group_msg_reject
 from openapi.token_manage import token_manager
-from openapi.network import post_im_message, delete_im_message, post_guild_image, post_floodgate_message, close_http_session, send_active_group_message
+from openapi.network import post_im_message, delete_im_message, post_guild_image, post_floodgate_message, close_http_session, send_active_group_message, post_upload_file
 from openapi.tool import check_config, get_health, get_maintaining_message, show_welcome, rate_limit
 from config import *
 
@@ -582,6 +582,13 @@ async def websocket_endpoint(websocket: WebSocket):
 async def upload_image(request: Request):
     data = await request.json()
     return await post_guild_image(data)
+
+
+# 文件上传接口（单聊/群聊富媒体分片上传）
+@app.post("/upload_file")
+async def upload_file(request: Request):
+    data = await request.json()
+    return await post_upload_file(data)
 
 
 class UserStatsRequest(BaseModel):
