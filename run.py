@@ -1,3 +1,4 @@
+import os
 import sys
 import json
 import time
@@ -13,7 +14,7 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, WebSocket, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -25,6 +26,7 @@ from openapi.oauth import oauth_manager
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add, parse_group_del, parse_group_msg_receive, parse_group_msg_reject
 from openapi.token_manage import token_manager
 from openapi.network import post_im_message, delete_im_message, post_guild_image, post_floodgate_message, close_http_session, send_active_group_message, post_upload_file, get_group_info
+from openapi.panel_menu import get_panels, create_panel, get_panel_detail, update_panel, delete_panel, update_panel_target, get_menu, update_menu
 from openapi.tool import check_config, get_health, get_maintaining_message, show_welcome, rate_limit
 from config import *
 
@@ -1250,6 +1252,94 @@ async def oauth_stream(authorization: str | None = Header(None), request: Reques
             "Transfer-Encoding": "chunked"  # 显式声明分块传输
         }
     )
+
+
+# ==================== 指令面板 & 自定义菜单 WebUI ====================
+async def _webui_auth(x_bot_shared_secret: str | None) -> None:
+    """校验 WebUI API 请求的 DEV_TOKEN 认证
+
+    令牌校验失败返回 401 并携带 X-Auth-Error 响应头，
+    用于与上游 QQ OpenAPI 返回的 401（如 IP 白名单错误）区分。
+    """
+    if not DEV_TOKEN:
+        raise HTTPException(status_code=503, detail="DEV_TOKEN not configured on server")
+    if not x_bot_shared_secret or x_bot_shared_secret != DEV_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid X-Bot-Shared-Secret", headers={"X-Auth-Error": "1"})
+
+
+@app.get("/panel_menu")
+async def panel_menu_page():
+    """指令面板 & 自定义菜单管理页面"""
+    webui_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webui", "index.html")
+    return FileResponse(webui_path, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/panel_menu/api/panels")
+async def webui_get_panels(scope: str, cursor: str = "", limit: int = 20,
+                           x_bot_shared_secret: str | None = Header(None, alias="X-Bot-Shared-Secret")):
+    """查询指令面板列表"""
+    await _webui_auth(x_bot_shared_secret)
+    return await get_panels(scope, cursor, limit)
+
+
+@app.post("/panel_menu/api/panels")
+async def webui_create_panel(request: Request,
+                             x_bot_shared_secret: str | None = Header(None, alias="X-Bot-Shared-Secret")):
+    """创建指令面板"""
+    await _webui_auth(x_bot_shared_secret)
+    data = await request.json()
+    return await create_panel(data)
+
+
+@app.get("/panel_menu/api/panels/{panel_id}")
+async def webui_get_panel(panel_id: str,
+                          x_bot_shared_secret: str | None = Header(None, alias="X-Bot-Shared-Secret")):
+    """查询指令面板详情"""
+    await _webui_auth(x_bot_shared_secret)
+    return await get_panel_detail(panel_id)
+
+
+@app.put("/panel_menu/api/panels/{panel_id}")
+async def webui_update_panel(panel_id: str, request: Request,
+                             x_bot_shared_secret: str | None = Header(None, alias="X-Bot-Shared-Secret")):
+    """修改指令面板"""
+    await _webui_auth(x_bot_shared_secret)
+    data = await request.json()
+    return await update_panel(panel_id, data)
+
+
+@app.delete("/panel_menu/api/panels/{panel_id}")
+async def webui_delete_panel(panel_id: str,
+                             x_bot_shared_secret: str | None = Header(None, alias="X-Bot-Shared-Secret")):
+    """删除指令面板"""
+    await _webui_auth(x_bot_shared_secret)
+    return await delete_panel(panel_id)
+
+
+@app.put("/panel_menu/api/panels/{panel_id}/target")
+async def webui_update_panel_target(panel_id: str, request: Request,
+                                    x_bot_shared_secret: str | None = Header(None, alias="X-Bot-Shared-Secret")):
+    """修改指令面板关联对象（add/del）"""
+    await _webui_auth(x_bot_shared_secret)
+    data = await request.json()
+    return await update_panel_target(panel_id, data.get("op", ""),
+                                     data.get("user_openids"), data.get("group_openids"))
+
+
+@app.get("/panel_menu/api/menu")
+async def webui_get_menu(x_bot_shared_secret: str | None = Header(None, alias="X-Bot-Shared-Secret")):
+    """查询全局自定义菜单"""
+    await _webui_auth(x_bot_shared_secret)
+    return await get_menu()
+
+
+@app.put("/panel_menu/api/menu")
+async def webui_update_menu(request: Request,
+                            x_bot_shared_secret: str | None = Header(None, alias="X-Bot-Shared-Secret")):
+    """修改全局自定义菜单"""
+    await _webui_auth(x_bot_shared_secret)
+    data = await request.json()
+    return await update_menu(data)
 
 
 start_time = time.time()

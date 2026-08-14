@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Floodgate · 指令面板 & 菜单管理</title>
+<style>
+:root {
+  --bg: #0f1419;
+  --card: #1a2029;
+  --card-hover: #212a36;
+  --border: #2a3441;
+  --text: #e8eaed;
+  --muted: #9aa3b2;
+  --accent: #5b9dff;
+  --accent-dim: rgba(91, 157, 255, 0.12);
+  --danger: #e5534b;
+  --success: #3fb950;
+  --warning: #d29922;
+  --radius: 10px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  min-height: 100vh;
+}
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 28px; border-bottom: 1px solid var(--border);
+  background: var(--card);
+  position: sticky; top: 0; z-index: 10;
+}
+header h1 { font-size: 17px; font-weight: 600; letter-spacing: 0.5px; }
+header .sub { color: var(--muted); font-size: 12px; margin-left: 10px; font-weight: 400; }
+.tabs { display: flex; gap: 6px; }
+.tab {
+  background: transparent; color: var(--muted); border: 1px solid var(--border);
+  padding: 7px 18px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  transition: all 0.15s;
+}
+.tab:hover { color: var(--text); border-color: var(--accent); }
+.tab.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+main { max-width: 1080px; margin: 0 auto; padding: 24px 28px 60px; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+.scope-tabs { display: flex; gap: 6px; }
+.scope-tab {
+  background: transparent; color: var(--muted); border: 1px solid var(--border);
+  padding: 6px 16px; border-radius: 999px; cursor: pointer; font-size: 13px;
+  text-transform: uppercase;
+}
+.scope-tab:hover { color: var(--text); }
+.scope-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn {
+  background: var(--accent); color: #fff; border: none; border-radius: 8px;
+  padding: 8px 16px; cursor: pointer; font-size: 13px; transition: opacity 0.15s;
+}
+.btn:hover { opacity: 0.88; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.btn.ghost:hover { color: var(--text); border-color: var(--accent); }
+.btn.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+.btn.danger:hover { background: rgba(229, 83, 75, 0.12); }
+.btn.small { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
+.empty {
+  text-align: center; color: var(--muted); padding: 60px 0; border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+/* 面板卡片 */
+.panel-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px 20px; margin-bottom: 14px;
+}
+.panel-card .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+.panel-card .title { font-size: 15px; font-weight: 600; }
+.panel-card .pid { font-family: Consolas, monospace; color: var(--muted); font-size: 12px; margin-top: 3px; }
+.badge {
+  display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px;
+  border: 1px solid var(--border); color: var(--muted); margin-right: 6px;
+}
+.badge.scope { color: var(--accent); border-color: var(--accent); }
+.badge.specific { color: var(--warning); border-color: var(--warning); }
+.badge.all { color: var(--success); border-color: var(--success); }
+.panel-card .meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+.items { display: flex; flex-wrap: wrap; gap: 8px; }
+.item-chip {
+  background: #141a23; border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 12px; font-size: 12px; max-width: 260px;
+}
+.item-chip .iname { font-weight: 600; }
+.item-chip .itype { color: var(--muted); margin-left: 6px; font-size: 11px; }
+.item-chip .idesc { color: var(--muted); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-chip .ilink { color: var(--accent); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-chip .iadmin { color: var(--warning); margin-top: 4px; font-size: 11px; }
+.actions { display: flex; gap: 8px; }
+.remark-line { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+.remark-line b { color: var(--text); font-weight: 500; }
+.load-more-wrap { text-align: center; margin-top: 6px; }
+/* 菜单预览 */
+.menu-box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+.menu-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.menu-btn {
+  flex: 1 1 140px; max-width: 180px; background: var(--card-hover); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px; cursor: default; text-align: center;
+}
+.menu-btn .mname { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.menu-btn .mtype { color: var(--muted); font-size: 11px; }
+.menu-sub { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.menu-sub .menu-btn { flex: 1 1 110px; max-width: 140px; padding: 10px 12px; }
+/* 模态框 */
+#modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 60px 20px; z-index: 100; overflow-y: auto;
+}
+#modal {
+  background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+  width: 100%; max-width: 720px; padding: 22px 24px;
+}
+#modal-title { font-size: 16px; font-weight: 600; margin-bottom: 18px; }
+.form-row { margin-bottom: 14px; }
+.form-row label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.form-row input[type="text"], .form-row input[type="url"], .form-row select, .form-row textarea {
+  width: 100%; background: #12171f; border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); padding: 9px 12px; font-size: 13px; outline: none;
+}
+.form-row input:focus, .form-row select:focus, .form-row textarea:focus { border-color: var(--accent); }
+.form-row textarea { resize: vertical; min-height: 60px; font-family: Consolas, monospace; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.checkbox-row { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; }
+.checkbox-row input { accent-color: var(--accent); }
+.modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+/* 动态编辑器 */
+.editor-block { border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; background: #141a23; }
+.editor-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.editor-head .eh-title { font-size: 13px; color: var(--muted); font-weight: 600; }
+.editor-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.editor-row input[type="text"], .editor-row select {
+  background: #12171f; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); padding: 7px 10px; font-size: 13px; outline: none;
+}
+.editor-row input:focus, .editor-row select:focus { border-color: var(--accent); }
+.editor-row .w-type { width: 130px; }
+.editor-row .w-name { flex: 1 1 140px; min-width: 120px; }
+.editor-row .w-desc { flex: 1 1 180px; min-width: 140px; }
+.editor-row .w-link { flex: 1 1 200px; min-width: 160px; }
+.editor-row .w-switch { flex: 1 1 160px; min-width: 130px; }
+.editor-row .w-del { background: transparent; color: var(--danger); border: none; cursor: pointer; font-size: 15px; align-self: center; }
+/* 拖拽排序手柄 */
+.drag-handle {
+  cursor: grab; color: var(--muted); font-size: 13px; padding: 0 2px;
+  user-select: none; align-self: center; flex: 0 0 auto;
+}
+.drag-handle:hover { color: var(--accent); }
+.drag-handle:active { cursor: grabbing; }
+.editor-row.dragging { opacity: 0.45; outline: 1px dashed var(--accent); outline-offset: 2px; border-radius: 6px; }
+.editor-sub { border-left: 2px solid var(--border); margin: 8px 0 4px 10px; padding-left: 12px; }
+.add-btn { color: var(--accent); background: transparent; border: 1px dashed var(--accent); border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 12px; }
+.add-btn:hover { background: var(--accent-dim); }
+.counter { color: var(--muted); font-size: 11px; }
+/* 登录遮罩 */
+/* 显式声明 hidden 时隐藏：display:flex 会覆盖 UA 样式表中 [hidden] 的 display:none */
+#login-overlay[hidden],
+#modal-backdrop[hidden] { display: none; }
+#login-overlay {
+  position: fixed; inset: 0; background: var(--bg); z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+}
+.login-box { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 34px 36px; width: 360px; }
+.login-box h2 { font-size: 18px; margin-bottom: 6px; }
+.login-box p { color: var(--muted); font-size: 12px; margin-bottom: 20px; line-height: 1.6; }
+.login-box input {
+  width: 100%; background: #12171f; border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); padding: 10px 12px; font-size: 14px; outline: none; margin-bottom: 14px;
+  font-family: Consolas, monospace;
+}
+.login-box input:focus { border-color: var(--accent); }
+.login-box .btn { width: 100%; padding: 10px; }
+.login-err { color: var(--danger); font-size: 12px; margin-top: 10px; min-height: 18px; }
+/* toast */
+#toast {
+  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+  background: var(--card); border: 1px solid var(--border); color: var(--text);
+  padding: 10px 22px; border-radius: 10px; font-size: 13px; z-index: 300;
+  opacity: 0; pointer-events: none; transition: opacity 0.25s; max-width: 80vw;
+}
+#toast.show { opacity: 1; }
+#toast.ok { border-color: var(--success); color: var(--success); }
+#toast.err { border-color: var(--danger); color: var(--danger); }
+.spinner {
+  display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border);
+  border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;
+  vertical-align: -2px; margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Floodgate 管理台<span class="sub">指令面板 · 自定义菜单</span></h1>
+  </div>
+  <div class="tabs">
+    <button id="tab-panels" class="tab active">指令面板</button>
+    <button id="tab-menu" class="tab">自定义菜单</button>
+  </div>
+</header>
+
+<main>
+  <!-- 指令面板视图 -->
+  <section id="view-panels">
+    <div class="toolbar">
+      <div class="scope-tabs" id="scope-tabs">
+        <button class="scope-tab active" data-scope="c2c">c2c</button>
+        <button class="scope-tab" data-scope="group">group</button>
+        <button class="scope-tab" data-scope="channel">channel</button>
+        <button class="scope-tab" data-scope="dm">dm</button>
+      </div>
+      <button class="btn" id="btn-new-panel">+ 新建面板</button>
+    </div>
+    <div id="panel-list"></div>
+    <div class="load-more-wrap">
+      <button class="btn ghost" id="btn-load-more" hidden>加载更多</button>
+    </div>
+  </section>
+
+  <!-- 自定义菜单视图 -->
+  <section id="view-menu" hidden>
+    <div class="toolbar">
+      <span id="menu-version" style="color: var(--muted); font-size: 13px;"></span>
+      <button class="btn" id="btn-edit-menu">编辑菜单</button>
+    </div>
+    <div id="menu-preview"></div>
+  </section>
+</main>
+
+<!-- 登录遮罩 -->
+<div id="login-overlay" hidden>
+  <div class="login-box">
+    <h2>Floodgate 管理台</h2>
+    <p>请输入 DEV_TOKEN 进行认证（即 config.py 中的开发令牌），令牌仅保存在浏览器本地。</p>
+    <input type="password" id="login-token" placeholder="DEV_TOKEN" autocomplete="off">
+    <button class="btn" id="btn-login">登录</button>
+    <div class="login-err" id="login-err"></div>
+  </div>
+</div>
+
+<!-- 模态框 -->
+<div id="modal-backdrop" hidden>
+  <div id="modal">
+    <div id="modal-title"></div>
+    <div id="modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn ghost" id="modal-cancel">取消</button>
+      <button class="btn" id="modal-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+const API = '/panel_menu/api';
+let token = localStorage.getItem('webui_token') || '';
+
+/* ---------------- 基础工具 ---------------- */
+async function api(path, options = {}) {
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+  if (token) headers['X-Bot-Shared-Secret'] = token;
+  const resp = await fetch(API + path, Object.assign({ headers }, options));
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    // 仅当响应携带 X-Auth-Error 标记头（本服务令牌校验失败）时才判定为登录失效；
+    // 上游 QQ OpenAPI 返回的 401（如 IP 白名单错误）按普通业务错误展示真实原因
+    if (resp.status === 401 && resp.headers.get('X-Auth-Error') === '1') {
+      showLogin('认证失败或令牌已失效，请重新登录');
+      throw new Error('UNAUTHORIZED');
+    }
+    throw new Error(data.detail || ('HTTP ' + resp.status));
+  }
+  return data;
+}
+
+let toastTimer = null;
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, 3000);
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function showLogin(errMsg) {
+  document.getElementById('login-overlay').hidden = false;
+  document.getElementById('login-err').textContent = errMsg || '';
+  if (!token) document.getElementById('login-token').focus();
+}
+function hideLogin() { document.getElementById('login-overlay').hidden = true; }
+
+/* ---------------- 模态框 ---------------- */
+let modalOkHandler = null;
+function openModal(title, bodyHtml, okText) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').innerHTML = bodyHtml;
+  document.getElementById('modal-ok').textContent = okText || '确定';
+  document.getElementById('modal-backdrop').hidden = false;
+}
+function closeModal() {
+  document.getElementById('modal-backdrop').hidden = true;
+  modalOkHandler = null;
+}
+
+/* ---------------- 指令面板 ---------------- */
+let currentScope = 'c2c';
+let cursor = '';
+let isEnd = false;
+
+async function loadPanels(reset) {
+  const list = document.getElementById('panel-list');
+  if (reset) {
+    cursor = ''; isEnd = false;
+    list.innerHTML = '<div class="empty"><span class="spinner"></span>加载中...</div>';
+  }
+  try {
+    const data = await api('/panels?scope=' + encodeURIComponent(currentScope) +
+      '&limit=20' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
+    if (reset) list.innerHTML = '';
+    renderPanels(data.records || []);
+    cursor = data.next_cursor || '';
+    isEnd = !!data.is_end;
+    document.getElementById('btn-load-more').hidden = isEnd || !cursor;
+    if (reset && !(data.records || []).length) {
+      list.innerHTML = '<div class="empty">该场景下暂无指令面板</div>';
+    }
+  } catch (e) {
+    if (e.message !== 'UNAUTHORIZED') {
+      list.innerHTML = '<div class="empty">加载失败：' + esc(e.message) + '</div>';
+    }
+  }
+}
+
+function renderPanels(records) {
+  const list = document.getElementById('panel-list');
+  records.forEach(r => {
+    const panel = r.panel || {};
+    const items = (panel.items || []).map(it => {
+      const linkHtml = it.type === 'link' && it.link ? '<div class="ilink">' + esc(it.link) + '</div>' : '';
+      const adminHtml = it.only_admin ? '<div class="iadmin">仅管理员</div>' : '';
+      return '<div class="item-chip"><span class="iname">' + esc(it.name || '') + '</span>' +
+        '<span class="itype">' + esc(it.type || '') + '</span>' +
+        (it.desc ? '<div class="idesc">' + esc(it.desc) + '</div>' : '') +
+        linkHtml + adminHtml + '</div>';
+    }).join('');
+    const card = document.createElement('div');
+    card.className = 'panel-card';
+    card.innerHTML =
+      '<div class="head"><div>' +
+        '<div class="title">' + esc(panel.remark || '(未设置备注)') + '</div>' +
+        '<div class="pid">' + esc(r.panel_id) + '</div>' +
+      '</div><div class="actions">' +
+        '<button class="btn ghost small" data-act="target">关联对象</button>' +
+        '<button class="btn ghost small" data-act="edit">编辑</button>' +
+        '<button class="btn danger small" data-act="del">删除</button>' +
+      '</div></div>' +
+      '<div class="meta">' +
+        '<span class="badge scope">' + esc(r.scope || '') + '</span>' +
+        '<span class="badge ' + (r.target_type === 'specific' ? 'specific' : 'all') + '">' + esc(r.target_type || 'all') + '</span>' +
+        (r.target_type === 'specific' ? '<span class="badge">关联 ' + ((r.user_openids || []).length + (r.group_openids || []).length) + ' 个对象</span>' : '') +
+        '<span>版本 v' + esc(r.version != null ? r.version : panel.version || 0) + '</span>' +
+      '</div>' +
+      (panel.remark && panel.items && panel.items.length ? '' : '') +
+      (items ? '<div class="items">' + items + '</div>' : '<div class="empty" style="padding: 14px;">无面板元素</div>');
+    card.querySelector('[data-act="edit"]').onclick = () => openPanelForm(r);
+    card.querySelector('[data-act="del"]').onclick = () => deletePanel(r);
+    card.querySelector('[data-act="target"]').onclick = () => openTargetForm(r);
+    list.appendChild(card);
+  });
+}
+
+/* 新建/编辑面板 */
+function openPanelForm(record) {
+  const isEdit = !!record;
+  const panel = record ? (record.panel || {}) : {};
+  const itemsHtml = panelItemsEditor(panel.items || []);
+  let extraFields = '';
+  if (!isEdit) {
+    const scopeLabel = { c2c: '用户 openid（每行一个）', group: '群 openid（每行一个）' }[currentScope] || '';
+    extraFields =
+      '<div class="form-grid">' +
+        '<div class="form-row"><label>生效场景（不可修改）</label>' +
+          '<input type="text" value="' + esc(currentScope) + '" disabled></div>' +
+        '<div class="form-row"><label>作用范围</label>' +
+          '<select id="f-target-type">' +
+            '<option value="all">all（全局配置）</option>' +
+            (currentScope === 'c2c' || currentScope === 'group' ?
+              '<option value="specific">specific（指定对象生效）</option>' : '') +
+          '</select></div>' +
+      '</div>' +
+      '<div class="form-row" id="f-openids-wrap" hidden><label>' + scopeLabel + '（最多 20 个）</label>' +
+        '<textarea id="f-openids" placeholder="每行一个 openid"></textarea></div>';
+  } else {
+    extraFields = '<div class="form-row"><label>生效场景（不可修改）</label>' +
+      '<input type="text" value="' + esc(record.scope) + ' / ' + esc(record.target_type) + '" disabled></div>';
+  }
+  openModal(isEdit ? '编辑面板 · ' + record.panel_id : '新建面板', extraFields + itemsHtml, isEdit ? '保存修改' : '创建');
+  if (!isEdit) {
+    document.getElementById('f-target-type').onchange = e => {
+      document.getElementById('f-openids-wrap').hidden = e.target.value !== 'specific';
+    };
+  }
+  modalOkHandler = async () => {
+    const items = collectPanelItems();
+    const remark = document.getElementById('f-remark').value.trim();
+    if (!items.length) throw new Error('至少需要一个面板元素');
+    if (isEdit) {
+      await api('/panels/' + encodeURIComponent(record.panel_id), {
+        method: 'PUT', body: JSON.stringify({ panel: { items, remark } })
+      });
+    } else {
+      const body = { scope: currentScope, panel: { items, remark } };
+      const targetType = document.getElementById('f-target-type').value;
+      body.target_type = targetType;
+      if (targetType === 'specific') {
+        const ids = document.getElementById('f-openids').value.split(/\s+/).filter(Boolean).slice(0, 20);
+        if (!ids.length) throw new Error('target_type 为 specific 时需填写关联 openid');
+        if (currentScope === 'c2c') body.user_openids = ids;
+        else body.group_openids = ids;
+      }
+      await api('/panels', { method: 'POST', body: JSON.stringify(body) });
+    }
+  };
+}
+
+/* 面板元素动态编辑器 */
+function panelItemsEditor(items) {
+  const rows = items.map((it, i) => itemRowHtml(it, i)).join('');
+  return '<div class="editor-block">' +
+    '<div class="editor-head"><span class="eh-title">面板元素（最多 20 个）</span>' +
+      '<span class="counter" id="item-count">' + items.length + '/20</span></div>' +
+    '<div id="item-rows">' + rows + '</div>' +
+    '<button class="add-btn" id="btn-add-item">+ 添加元素</button>' +
+    '</div>' +
+    '<div class="form-row"><label>面板备注（最多 255 字符，不对用户展示）</label>' +
+    '<input type="text" id="f-remark" maxlength="255" value="' + esc(items.remark || '') + '"></div>';
+}
+
+function itemRowHtml(it, i) {
+  const type = it.type || 'command';
+  const linkField = type === 'link'
+    ? '<input type="url" class="w-link" placeholder="跳转链接 https://..." value="' + esc(it.link || '') + '" data-f="link">' : '';
+  return '<div class="editor-row" data-idx="' + i + '">' +
+    '<span class="drag-handle" draggable="true" title="拖拽排序">⠿</span>' +
+    '<select class="w-type" data-f="type">' +
+      '<option value="command"' + (type === 'command' ? ' selected' : '') + '>command 指令</option>' +
+      '<option value="link"' + (type === 'link' ? ' selected' : '') + '>link 链接</option>' +
+    '</select>' +
+    '<input type="text" class="w-name" placeholder="名称（≤14字符）" maxlength="14" value="' + esc(it.name || '') + '" data-f="name">' +
+    '<input type="text" class="w-desc" placeholder="描述（≤30字符）" maxlength="30" value="' + esc(it.desc || '') + '" data-f="desc">' +
+    linkField +
+    '<label class="checkbox-row"><input type="checkbox" data-f="only_admin"' + (it.only_admin ? ' checked' : '') + '>仅管理员</label>' +
+    '<button class="w-del" data-act="del-item">×</button>' +
+  '</div>';
+}
+
+function refreshItemLinks(container) {
+  container.querySelectorAll('.editor-row').forEach(row => {
+    const type = row.querySelector('[data-f="type"]').value;
+    let link = row.querySelector('[data-f="link"]');
+    if (type === 'link' && !link) {
+      const div = document.createElement('input');
+      div.type = 'url'; div.className = 'w-link';
+      div.placeholder = '跳转链接 https://...'; div.dataset.f = 'link';
+      row.querySelector('.w-desc').after(div);
+    } else if (type !== 'link' && link) {
+      link.remove();
+    }
+  });
+}
+
+function collectPanelItems() {
+  const rows = document.querySelectorAll('#item-rows .editor-row');
+  const items = [];
+  rows.forEach(row => {
+    const item = { type: row.querySelector('[data-f="type"]').value };
+    item.name = row.querySelector('[data-f="name"]').value.trim();
+    item.desc = row.querySelector('[data-f="desc"]').value.trim();
+    const link = row.querySelector('[data-f="link"]');
+    if (item.type === 'link') item.link = link ? link.value.trim() : '';
+    item.only_admin = row.querySelector('[data-f="only_admin"]').checked;
+    items.push(item);
+  });
+  return items;
+}
+
+/* 拖拽排序：手柄触发，仅允许同一父容器内移动；menu 行连同其子菜单容器一起移动 */
+function enableDragSort(container, rowSelector) {
+  if (container.dataset.dragBound) return;
+  container.dataset.dragBound = '1';
+  let dragRow = null;
+  container.addEventListener('dragstart', e => {
+    if (!e.target.closest('.drag-handle')) { e.preventDefault(); return; }
+    const row = e.target.closest(rowSelector);
+    if (!row) { e.preventDefault(); return; }
+    dragRow = row;
+    row.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', ''); } catch (err) {}
+  });
+  container.addEventListener('dragover', e => {
+    if (!dragRow) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const target = e.target.closest(rowSelector);
+    if (!target || target === dragRow || target.parentNode !== dragRow.parentNode) return;
+    const rect = target.getBoundingClientRect();
+    const after = (e.clientY - rect.top) > rect.height / 2;
+    const anchor = after ? target.nextSibling : target;
+    dragRow.parentNode.insertBefore(dragRow, anchor);
+    // menu 行携带其子菜单容器一起移动
+    const sub = dragRow.nextElementSibling;
+    if (sub && sub.matches('.editor-sub')) {
+      dragRow.parentNode.insertBefore(sub, dragRow.nextSibling);
+    }
+  });
+  container.addEventListener('drop', e => e.preventDefault());
+  container.addEventListener('dragend', () => {
+    if (dragRow) { dragRow.classList.remove('dragging'); dragRow = null; }
+  });
+}
+
+function initPanelEditor() {
+  const wrap = document.getElementById('item-rows');
+  if (!wrap) return;
+  refreshItemLinks(wrap);
+  wrap.addEventListener('change', e => {
+    if (e.target.matches('[data-f="type"]')) refreshItemLinks(wrap);
+  });
+  wrap.addEventListener('click', e => {
+    if (e.target.matches('[data-act="del-item"]')) {
+      e.target.closest('.editor-row').remove();
+      document.getElementById('item-count').textContent = wrap.children.length + '/20';
+    }
+  });
+  document.getElementById('btn-add-item').onclick = () => {
+    if (wrap.children.length >= 20) { toast('最多 20 个面板元素', 'err'); return; }
+    wrap.insertAdjacentHTML('beforeend', itemRowHtml({ type: 'command' }, wrap.children.length));
+    document.getElementById('item-count').textContent = wrap.children.length + '/20';
+  };
+  enableDragSort(wrap, '.editor-row');
+}
+
+/* 删除面板 */
+function deletePanel(record) {
+  openModal('删除面板', '<p>确认删除面板 <code>' + esc(record.panel_id) + '</code> 吗？删除后该面板不再对任何用户或群生效。</p>', '删除');
+  document.getElementById('modal-ok').classList.add('danger');
+  modalOkHandler = async () => {
+    await api('/panels/' + encodeURIComponent(record.panel_id), { method: 'DELETE' });
+  };
+}
+
+/* 关联对象管理 */
+function openTargetForm(record) {
+  const isC2C = record.scope === 'c2c';
+  const key = isC2C ? 'user_openids' : 'group_openids';
+  openModal('关联对象 · ' + record.panel_id,
+    '<div class="form-row"><label>当前关联的 ' + (isC2C ? '用户 openid' : '群 openid') + '（' +
+      (record[key] || []).length + ' 个）</label>' +
+      '<textarea id="f-cur-openids" readonly style="min-height:120px;">' + esc((record[key] || []).join('\n')) + '</textarea></div>' +
+    '<div class="form-row"><label>添加 / 移除的 openid（每行一个，单次最多 20 个）</label>' +
+      '<textarea id="f-target-openids" placeholder="每行一个 openid"></textarea></div>' +
+    '<div class="modal-footer" style="margin-top:0;padding:0;border:none;">' +
+      '<button class="btn ghost small" id="f-target-del">移除选中</button>' +
+      '<button class="btn small" id="f-target-add">添加</button></div>',
+    '关闭');
+  document.getElementById('f-target-add').onclick = async () => {
+    const ids = document.getElementById('f-target-openids').value.split(/\s+/).filter(Boolean).slice(0, 20);
+    if (!ids.length) { toast('请先输入要添加的 openid', 'err'); return; }
+    const body = { op: 'add' };
+    body[key] = ids;
+    await api('/panels/' + encodeURIComponent(record.panel_id) + '/target', { method: 'PUT', body: JSON.stringify(body) });
+    toast('已添加 ' + ids.length + ' 个关联对象', 'ok');
+    document.getElementById('f-target-openids').value = '';
+    await refreshTargetDetail(record);
+  };
+  document.getElementById('f-target-del').onclick = async () => {
+    const ids = document.getElementById('f-target-openids').value.split(/\s+/).filter(Boolean).slice(0, 20);
+    if (!ids.length) { toast('请先输入要移除的 openid', 'err'); return; }
+    const body = { op: 'del' };
+    body[key] = ids;
+    await api('/panels/' + encodeURIComponent(record.panel_id) + '/target', { method: 'PUT', body: JSON.stringify(body) });
+    toast('已移除 ' + ids.length + ' 个关联对象', 'ok');
+    document.getElementById('f-target-openids').value = '';
+    await refreshTargetDetail(record);
+  };
+}
+
+async function refreshTargetDetail(record) {
+  try {
+    const detail = await api('/panels/' + encodeURIComponent(record.panel_id));
+    const isC2C = detail.scope === 'c2c';
+    const key = isC2C ? 'user_openids' : 'group_openids';
+    document.getElementById('f-cur-openids').value = (detail[key] || []).join('\n');
+  } catch (e) { /* 忽略 */ }
+}
+
+/* ---------------- 自定义菜单 ---------------- */
+async function loadMenu() {
+  const preview = document.getElementById('menu-preview');
+  preview.innerHTML = '<div class="empty"><span class="spinner"></span>加载中...</div>';
+  try {
+    const data = await api('/menu');
+    document.getElementById('menu-version').textContent = data.menu ?
+      '当前版本 v' + (data.version != null ? data.version : '?') : '';
+    renderMenu(data.menu);
+  } catch (e) {
+    if (e.message !== 'UNAUTHORIZED') preview.innerHTML = '<div class="empty">加载失败：' + esc(e.message) + '</div>';
+  }
+}
+
+function renderMenu(menu) {
+  const preview = document.getElementById('menu-preview');
+  if (!menu || !(menu.items || []).length) {
+    preview.innerHTML = '<div class="empty">尚未设置自定义菜单</div>';
+    return;
+  }
+  const itemsHtml = (menu.items || []).map(it => menuBtnHtml(it)).join('');
+  preview.innerHTML = '<div class="menu-box"><div class="menu-row">' + itemsHtml + '</div></div>';
+}
+
+function menuBtnHtml(it) {
+  let extra = '';
+  if (it.type === 'menu' && (it.sub_menu_items || []).length) {
+    extra = '<div class="menu-sub">' + it.sub_menu_items.map(s => menuBtnHtml(s)).join('') + '</div>';
+  } else if (it.type === 'send_message' && it.send_message) {
+    extra = '<div class="mtype" style="color: var(--success);">发送：' + esc(it.send_message) + '</div>';
+  } else if (it.type === 'link' && it.link) {
+    extra = '<div class="mtype" style="color: var(--accent);">' + esc(it.link) + '</div>';
+  } else if (it.type === 'switch') {
+    extra = '<div class="mtype">' + esc(it.switch_id || '') + (it.switch && it.switch.default ? '（默认开）' : '（默认关）') + '</div>';
+  }
+  const typeLabel = { send_message: '发送消息', link: '链接跳转', switch: '开关', menu: '子菜单' }[it.type] || it.type;
+  return '<div class="menu-btn"><div class="mname">' + esc(it.name || '') + '</div>' +
+    '<div class="mtype">' + typeLabel + '</div>' + extra + '</div>';
+}
+
+function openMenuForm() {
+  api('/menu').then(data => {
+    const items = (data.menu && data.menu.items) || [];
+    openModal('编辑自定义菜单（C2C 单聊场景，最多 10 项）', menuItemsEditor(items), '保存');
+    initMenuEditor();
+    modalOkHandler = async () => {
+      const items = collectMenuItems();
+      if (!items.length) throw new Error('至少需要一个菜单项');
+      await api('/menu', { method: 'PUT', body: JSON.stringify({ menu: { items } }) });
+    };
+  }).catch(e => { if (e.message !== 'UNAUTHORIZED') toast('加载菜单失败：' + e.message, 'err'); });
+}
+
+/* 菜单项动态编辑器 */
+function menuItemsEditor(items) {
+  const rows = items.map((it, i) => menuItemRowHtml(it, i)).join('');
+  return '<div class="editor-block">' +
+    '<div class="editor-head"><span class="eh-title">菜单项（最多 10 个，从左到右展示）</span>' +
+      '<span class="counter" id="menu-count">' + items.length + '/10</span></div>' +
+    '<div id="menu-rows">' + rows + '</div>' +
+    '<button class="add-btn" id="btn-add-menu-item">+ 添加菜单项</button>' +
+  '</div>';
+}
+
+function menuItemRowHtml(it, i, isSub) {
+  const type = it.type || 'send_message';
+  const maxItems = isSub ? 5 : 10;
+  const subHtml = type === 'menu' ? '<div class="editor-sub" data-f="subs">' +
+    ((it.sub_menu_items || []).map((s, j) => menuItemRowHtml(s, j, true)).join('')) + '</div>' : '';
+  let typeField;
+  if (isSub) {
+    typeField = '<select class="w-type" data-f="type">' +
+      '<option value="send_message"' + (type === 'send_message' ? ' selected' : '') + '>send_message</option>' +
+      '<option value="link"' + (type === 'link' ? ' selected' : '') + '>link</option></select>';
+  } else {
+    typeField = '<select class="w-type" data-f="type">' +
+      '<option value="send_message"' + (type === 'send_message' ? ' selected' : '') + '>send_message 发送</option>' +
+      '<option value="link"' + (type === 'link' ? ' selected' : '') + '>link 链接</option>' +
+      '<option value="switch"' + (type === 'switch' ? ' selected' : '') + '>switch 开关</option>' +
+      '<option value="menu"' + (type === 'menu' ? ' selected' : '') + '>menu 子菜单</option></select>';
+  }
+  const sendField = type === 'send_message'
+    ? '<input type="text" class="w-link" placeholder="发送内容（填入聊天输入框）" value="' + esc(it.send_message || '') + '" data-f="send_message">' : '';
+  const linkField = type === 'link'
+    ? '<input type="url" class="w-link" placeholder="跳转链接 https://..." value="' + esc(it.link || '') + '" data-f="link">' : '';
+  const switchField = type === 'switch'
+    ? '<input type="text" class="w-switch" placeholder="switch_id" value="' + esc(it.switch_id || '') + '" data-f="switch_id">' +
+      '<label class="checkbox-row"><input type="checkbox" data-f="switch_default"' + (it.switch && it.switch.default ? ' checked' : '') + '>默认开</label>' : '';
+  const subAdd = type === 'menu'
+    ? '<button class="add-btn" data-act="add-sub" data-f="add-sub">+ 子菜单</button><span class="counter" data-f="sub-count">' +
+      ((it.sub_menu_items || []).length) + '/' + 5 + '</span>' : '';
+  return '<div class="editor-row" data-idx="' + i + '">' +
+    '<span class="drag-handle" draggable="true" title="拖拽排序">⠿</span>' +
+    typeField +
+    '<input type="text" class="w-name" placeholder="' + (isSub ? '子菜单名称（≤14字符）' : '按钮名称（≤10字符）') + '" maxlength="14" value="' + esc(it.name || '') + '" data-f="name">' +
+    sendField + linkField + switchField + subAdd +
+    '<button class="w-del" data-act="del-item">×</button>' +
+  '</div>' + subHtml;
+}
+
+function collectMenuItems() {
+  const items = [];
+  document.querySelectorAll('#menu-rows > .editor-row').forEach(row => {
+    const item = buildMenuItem(row);
+    const subWrap = row.nextElementSibling;
+    if (item.type === 'menu' && subWrap && subWrap.matches('.editor-sub')) {
+      item.sub_menu_items = [];
+      subWrap.querySelectorAll(':scope > .editor-row').forEach(sub => {
+        item.sub_menu_items.push(buildMenuItem(sub));
+      });
+    }
+    items.push(item);
+  });
+  return items;
+}
+
+function buildMenuItem(row) {
+  const item = { type: row.querySelector('[data-f="type"]').value };
+  item.name = row.querySelector('[data-f="name"]').value.trim();
+  const send = row.querySelector('[data-f="send_message"]');
+  if (send) item.send_message = send.value.trim();
+  const link = row.querySelector('[data-f="link"]');
+  if (link) item.link = link.value.trim();
+  const sid = row.querySelector('[data-f="switch_id"]');
+  if (sid) {
+    item.switch_id = sid.value.trim();
+    item.switch = { switch_id: sid.value.trim(), default: row.querySelector('[data-f="switch_default"]').checked };
+  }
+  return item;
+}
+
+/* 按类型重建菜单行字段：切换类型时清理旧字段并补齐新字段 */
+function ensureMenuFields(row) {
+  const type = row.querySelector('[data-f="type"]').value;
+  // 移除该行所有类型相关字段（switch_default 位于 label 内，连同 label 移除）
+  row.querySelectorAll('[data-f="send_message"], [data-f="link"], [data-f="switch_id"], [data-f="switch_default"], [data-f="add-sub"], [data-f="sub-count"]').forEach(el => {
+    (el.closest('label') || el).remove();
+  });
+  const nameInput = row.querySelector('[data-f="name"]');
+  const makeInput = (inputType, cls, placeholder) => {
+    const input = document.createElement('input');
+    input.type = inputType; input.className = cls;
+    input.placeholder = placeholder;
+    return input;
+  };
+  if (type === 'send_message') {
+    const input = makeInput('text', 'w-link', '发送内容（填入聊天输入框）');
+    input.dataset.f = 'send_message';
+    nameInput.after(input);
+  } else if (type === 'link') {
+    const input = makeInput('url', 'w-link', '跳转链接 https://...');
+    input.dataset.f = 'link';
+    nameInput.after(input);
+  } else if (type === 'switch') {
+    const input = makeInput('text', 'w-switch', 'switch_id');
+    input.dataset.f = 'switch_id';
+    nameInput.after(input);
+    const label = document.createElement('label');
+    label.className = 'checkbox-row';
+    label.innerHTML = '<input type="checkbox" data-f="switch_default">默认开';
+    nameInput.after(label);
+  } else if (type === 'menu') {
+    const btn = document.createElement('button');
+    btn.className = 'add-btn';
+    btn.dataset.act = 'add-sub';
+    btn.dataset.f = 'add-sub';
+    btn.textContent = '+ 子菜单';
+    nameInput.after(btn);
+    const span = document.createElement('span');
+    span.className = 'counter';
+    span.dataset.f = 'sub-count';
+    span.textContent = '0/5';
+    btn.after(span);
+  }
+}
+
+function initMenuEditor() {
+  const wrap = document.getElementById('menu-rows');
+  if (!wrap) return;
+  const refresh = () => {
+    wrap.querySelectorAll('.editor-row').forEach(row => {
+      const type = row.querySelector('[data-f="type"]').value;
+      ['send_message', 'link', 'switch_id', 'switch_default', 'add-sub', 'sub-count'].forEach(k => {
+        const el = row.querySelector('[data-f="' + k + '"]');
+        if (el) el.closest ? el.parentElement.style.display = '' : null;
+      });
+      const show = {
+        send_message: type === 'send_message',
+        link: type === 'link',
+        switch_id: type === 'switch',
+        switch_default: type === 'switch',
+        'add-sub': type === 'menu',
+        'sub-count': type === 'menu'
+      };
+      Object.keys(show).forEach(k => {
+        const el = row.querySelector('[data-f="' + k + '"]');
+        if (el) el.parentElement.style.display = show[k] ? '' : 'none';
+      });
+    });
+  };
+  wrap.addEventListener('change', e => {
+    if (e.target.matches('[data-f="type"]')) {
+      const row = e.target.closest('.editor-row');
+      const type = e.target.value;
+      const isSub = !row.closest('#menu-rows');
+      const hasSub = row.nextElementSibling && row.nextElementSibling.matches('.editor-sub');
+      if (type === 'menu' && !hasSub && !isSub) {
+        row.insertAdjacentHTML('afterend', '<div class="editor-sub"></div>');
+      } else if (type !== 'menu' && hasSub) {
+        row.nextElementSibling.remove();
+      }
+      ensureMenuFields(row);
+      refresh();
+    }
+  });
+  wrap.addEventListener('click', e => {
+    const act = e.target.dataset.act;
+    if (act === 'del-item') {
+      const row = e.target.closest('.editor-row');
+      const sub = row.nextElementSibling;
+      if (sub && sub.matches('.editor-sub')) sub.remove();
+      row.remove();
+      document.getElementById('menu-count').textContent = wrap.children.length + '/10';
+      refresh();
+    } else if (act === 'add-sub') {
+      const row = e.target.closest('.editor-row');
+      const sub = row.nextElementSibling;
+      if (sub && sub.matches('.editor-sub')) {
+        const cnt = sub.querySelectorAll(':scope > .editor-row').length;
+        if (cnt >= 5) { toast('子菜单最多 5 个', 'err'); return; }
+        sub.insertAdjacentHTML('beforeend', menuItemRowHtml({ type: 'send_message' }, cnt, true));
+      }
+    }
+  });
+  document.getElementById('btn-add-menu-item').onclick = () => {
+    if (wrap.children.length >= 10) { toast('菜单最多 10 项', 'err'); return; }
+    wrap.insertAdjacentHTML('beforeend', menuItemRowHtml({ type: 'send_message' }, wrap.children.length));
+    document.getElementById('menu-count').textContent = wrap.children.length + '/10';
+    refresh();
+  };
+  enableDragSort(wrap, '.editor-row');
+  refresh();
+}
+
+/* ---------------- 事件绑定 ---------------- */
+document.getElementById('btn-login').onclick = async () => {
+  const value = document.getElementById('login-token').value.trim();
+  if (!value) return;
+  const oldToken = token;
+  token = value;
+  try {
+    await api('/panels?scope=c2c&limit=1');
+    localStorage.setItem('webui_token', value);
+    hideLogin();
+    toast('登录成功', 'ok');
+    loadPanels(true);
+  } catch (e) {
+    token = oldToken;
+    document.getElementById('login-err').textContent = e.message === 'UNAUTHORIZED' ? '令牌错误或已失效' : e.message;
+  }
+};
+document.getElementById('login-token').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-login').click();
+});
+
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const isPanel = btn.id === 'tab-panels';
+    document.getElementById('view-panels').hidden = !isPanel;
+    document.getElementById('view-menu').hidden = isPanel;
+    if (isPanel) loadPanels(true);
+    else loadMenu();
+  };
+});
+
+document.querySelectorAll('#scope-tabs .scope-tab').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('#scope-tabs .scope-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentScope = btn.dataset.scope;
+    loadPanels(true);
+  };
+});
+
+document.getElementById('btn-new-panel').onclick = () => openPanelForm(null);
+document.getElementById('btn-edit-menu').onclick = () => openMenuForm();
+document.getElementById('btn-load-more').onclick = () => loadPanels(false);
+
+document.getElementById('modal-cancel').onclick = closeModal;
+document.getElementById('modal-ok').onclick = async () => {
+  if (!modalOkHandler) { closeModal(); return; }
+  const btn = document.getElementById('modal-ok');
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>' + label;
+  try {
+    await modalOkHandler();
+    btn.disabled = false;
+    btn.textContent = label;
+    btn.classList.remove('danger');
+    closeModal();
+    toast('操作成功', 'ok');
+    const isPanelTab = document.getElementById('tab-panels').classList.contains('active');
+    if (isPanelTab) loadPanels(true);
+    else loadMenu();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = label;
+    if (e.message !== 'UNAUTHORIZED') toast('操作失败：' + e.message, 'err');
+  }
+};
+document.getElementById('modal-backdrop').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+
+/* 面板编辑器：模态框打开后初始化 */
+new MutationObserver(muts => {
+  muts.forEach(m => {
+    if (m.addedNodes.length && document.getElementById('item-rows')) initPanelEditor();
+  });
+}).observe(document.getElementById('modal-body'), { childList: true });
+
+/* ---------------- 启动 ---------------- */
+document.addEventListener('DOMContentLoaded', () => {
+  if (!token) { showLogin(); return; }
+  hideLogin();
+  loadPanels(true);
+});
+</script>
+</body>
+</html>

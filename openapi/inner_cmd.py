@@ -142,16 +142,18 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
         markdown_content = {"content": f"Oauth登录令牌：<qqbot-cmd-input text=\"{token}\" show=\"点击后，在底部输入框内显示\"/>\n有效期{OAUTH_LOGIN_TOKEN_TTL}秒，谨防泄露。"}
         return await post_floodgate_markdown_message(markdown_content, d)
     elif cmd.startswith("openid"):
-        # 获取当前群聊的 OpenID（仅群聊可用）
+        # 同时显示用户与当前群聊的 OpenID/数字ID（仅群聊可用）
         group_openid = d.get("group_openid") or d.get("channel_id")
         if not group_openid:
             return await post_floodgate_message("此命令仅在群聊中可用", d)
     
+        user_openid = d.get("author", {}).get("union_openid")
         if not TRANSPARENT_OPENID:
             group_digit_id = await get_or_create_digit_id(group_openid)
-            msg = f"当前群聊信息：\nOpenID: {group_openid}\n数字ID: {group_digit_id}"
+            user_digit_id = await get_or_create_digit_id(user_openid) if user_openid else None
+            msg = f"当前用户信息：\nOpenID: {user_openid}\n数字ID: {user_digit_id}\n\n当前群聊信息：\nOpenID: {group_openid}\n数字ID: {group_digit_id}"
         else:
-            msg = f"当前群聊 OpenID: {group_openid}"
+            msg = f"当前用户 OpenID: {user_openid}\n当前群聊 OpenID: {group_openid}"
         return await post_floodgate_message(msg, d)
     elif cmd.startswith("subscribe"):
         # 订阅命令：仅群主可执行
