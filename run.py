@@ -25,7 +25,7 @@ from openapi.inner_cmd import parse_floodgate_cmd
 from openapi.oauth import oauth_manager
 from openapi.parse_open_event import parse_open_message_event, convert_cq_to_openapi_message, parse_group_add, parse_group_del, parse_group_msg_receive, parse_group_msg_reject
 from openapi.token_manage import token_manager
-from openapi.network import post_im_message, delete_im_message, post_guild_image, post_floodgate_message, close_http_session, send_active_group_message, post_upload_file, get_group_info
+from openapi.network import post_im_message, delete_im_message, post_guild_image, post_floodgate_message, close_http_session, send_active_group_message, send_active_user_message, post_upload_file, get_group_info
 from openapi.panel_menu import get_panels, create_panel, get_panel_detail, update_panel, delete_panel, update_panel_target, get_menu, update_menu
 from openapi.tool import check_config, get_health, get_maintaining_message, show_welcome, rate_limit
 from config import *
@@ -609,7 +609,8 @@ class OAuthCommandRequest(BaseModel):
 
 
 class ActiveMessageRequest(BaseModel):
-    group_id: int
+    group_id: int | None = None
+    user_id: int | None = None
     message: list
 
 
@@ -1035,16 +1036,27 @@ async def send_active_message(
     x_bot_shared_secret: str | None = Header(None, alias="X-Bot-Shared-Secret"),
     req: Request = None
 ):
-    """使用 DEV_TOKEN 认证，向目标群发送主动消息
+    """使用 DEV_TOKEN 认证，向目标群或目标用户发送主动消息
 
     请求体:
-        - group_id: 目标群的数字 ID
+        - group_id: 目标群的数字 ID（群聊场景，与 user_id 二选一）
+        - user_id: 目标用户的数字 ID（单聊场景，与 group_id 二选一）
         - message: OneBot 标准消息段数组，如 [{"type":"text","data":{"text":"你好"}}]
 
     认证: X-Bot-Shared-Secret 请求头，值需匹配 DEV_TOKEN
     """
+    # 目标校验：group_id 与 user_id 必须且只能提供一个
+    if request.group_id is None and request.user_id is None:
+        raise HTTPException(status_code=400, detail="group_id or user_id is required")
+    if request.group_id is not None and request.user_id is not None:
+        raise HTTPException(status_code=400, detail="group_id and user_id are mutually exclusive")
+
+    is_group = request.group_id is not None
+    scope = "group" if is_group else "user"
+    target_id = request.group_id if is_group else request.user_id
+
     client_ip = req.client.host if req and req.client else "unknown"
-    log.info(f"[Active Message] 收到主动消息请求，客户端IP: {client_ip}, group_id={request.group_id}")
+    log.info(f"[Active Message] 收到主动消息请求，客户端IP: {client_ip}, {scope}_id={target_id}")
 
     # DEV_TOKEN 验证
     if not DEV_TOKEN:
@@ -1054,17 +1066,17 @@ async def send_active_message(
         log.warning(f"[Active Message] DEV_TOKEN 验证失败，收到: {x_bot_shared_secret}")
         raise HTTPException(status_code=401, detail="Invalid X-Bot-Shared-Secret")
 
-    # 将数字 group_id 转换为 OpenID
+    # 将数字 ID 转换为 OpenID
     if TRANSPARENT_OPENID:
-        group_openid = str(request.group_id)
+        target_openid = str(target_id)
     else:
-        group_openid = await get_union_id_by_digit_id(request.group_id)
+        target_openid = await get_union_id_by_digit_id(target_id)
 
-    if not group_openid:
-        log.error(f"[Active Message] 无法找到群 {request.group_id} 的 OpenID")
-        raise HTTPException(status_code=404, detail=f"Group not found: {request.group_id}")
+    if not target_openid:
+        log.error(f"[Active Message] 无法找到 {scope} {target_id} 的 OpenID")
+        raise HTTPException(status_code=404, detail=f"{scope.capitalize()} not found: {target_id}")
 
-    log.info(f"[Active Message] group_id={request.group_id} -> group_openid={group_openid}")
+    log.info(f"[Active Message] {scope}_id={target_id} -> target_openid={target_openid}")
 
     # 将 OneBot 消息段转换为 OpenAPI 格式
     try:
@@ -1073,11 +1085,14 @@ async def send_active_message(
         log.error(f"[Active Message] 消息格式转换失败: {e}")
         raise HTTPException(status_code=400, detail=f"Invalid message format: {e}")
 
-    log.info(f"[Active Message] 转换后消息类型: {openapi_msg.get('type')}, 目标群: {group_openid}")
+    log.info(f"[Active Message] 转换后消息类型: {openapi_msg.get('type')}, 目标{scope}: {target_openid}")
 
     # 发送主动消息
     try:
-        result = await send_active_group_message(group_openid, openapi_msg)
+        if is_group:
+            result = await send_active_group_message(target_openid, openapi_msg)
+        else:
+            result = await send_active_user_message(target_openid, openapi_msg)
     except Exception as e:
         log.error(f"[Active Message] 发送消息异常: {e}")
         import traceback
@@ -1091,14 +1106,14 @@ async def send_active_message(
         )
         return {
             "status": "send_failed",
-            "group_id": request.group_id,
+            f"{scope}_id": target_id,
             "err_code": result.get("err_code"),
             "message": result.get("message"),
             "trace_id": result.get("trace_id")
         }
 
-    log.success(f"[Active Message] 主动消息已发送到群 {request.group_id}")
-    return {"status": "ok", "group_id": request.group_id, "data": result}
+    log.success(f"[Active Message] 主动消息已发送到{scope} {target_id}")
+    return {"status": "ok", f"{scope}_id": target_id, "data": result}
 
 
 # OAuth 内容拉取接口

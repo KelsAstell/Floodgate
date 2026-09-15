@@ -4,7 +4,7 @@ import time
 from config import BOT_NAME, TRANSPARENT_OPENID, ACHIEVEMENT_PERSIST, OAUTH_LOGIN_TOKEN_TTL, VERSION, log
 from openapi.database import get_dau_today, get_achievement_list, get_or_create_digit_id, get_gm_blacklist, add_group_to_gm_blacklist, remove_group_from_gm_blacklist, get_gm_whitelist, add_group_to_gm_whitelist, remove_group_from_gm_whitelist
 from openapi.draw_ach import generate_achievement_page_image
-from openapi.network import post_floodgate_message, post_im_message, post_floodgate_rich_message, post_floodgate_markdown_message
+from openapi.network import post_floodgate_message, post_im_message, post_floodgate_rich_message, post_floodgate_markdown_message, is_group_muted, set_group_muted
 from openapi.subscription import subscribe_group, unsubscribe_group, is_subscribed, load_subscription_message
 from openapi.tool import is_user_admin, set_maintaining_message, get_health, get_dau_history
 
@@ -156,23 +156,28 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
             msg = f"当前用户 OpenID: {user_openid}\n当前群聊 OpenID: {group_openid}"
         return await post_floodgate_message(msg, d)
     elif cmd.startswith("subscribe"):
-        # 订阅命令：仅群主可执行
+        # 订阅命令：仅群主可执行；其中 ~subscribe test 为管理员测试命令，群聊/私聊均可执行
+        parts = cmd.split(maxsplit=1)
+        sub_cmd = parts[1].strip() if len(parts) > 1 else ""
+        is_test = sub_cmd == "test"
+
         group_openid = d.get("group_openid") or d.get("channel_id")
-        if not group_openid:
+        if not group_openid and not is_test:
             return await post_floodgate_message("此命令仅在群聊中可用", d)
     
-        member_role = d.get("author", {}).get("member_role", "")
-        if member_role != "owner":
-            return await post_floodgate_message("权限不足：只有群主才能管理订阅", d)
+        if group_openid:
+            member_role = d.get("author", {}).get("member_role", "")
+            if member_role != "owner":
+                return await post_floodgate_message("权限不足：只有群主才能管理订阅", d)
     
         # 获取群数字ID
-        if not TRANSPARENT_OPENID:
-            group_digit_id = await get_or_create_digit_id(group_openid)
-        else:
-            group_digit_id = group_openid
+        if group_openid:
+            if not TRANSPARENT_OPENID:
+                group_digit_id = await get_or_create_digit_id(group_openid)
+            else:
+                group_digit_id = group_openid
     
-        parts = cmd.split(maxsplit=1)
-        if len(parts) <= 1 or parts[1].strip() == "":
+        if sub_cmd == "":
             # ~subscribe - 先发一条主动消息测试权限
             from openapi.network import call_open_api
             test_payload = {
@@ -195,9 +200,9 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
                 )
             # 测试通过，写入数据库
             success, msg = await subscribe_group(group_openid, group_digit_id, d.get("author", {}).get("union_openid", ""))
-        elif parts[1].strip() == "test":
-            # ~subscribe test - 管理员专用，发送订阅内容到当前群
-            if not await is_user_admin(d):
+        elif is_test:
+            # ~subscribe test - 群聊中仅管理员可用，私聊中所有人可用；发送订阅内容到当前会话
+            if group_openid and not await is_user_admin(d):
                 return await post_floodgate_message("权限不足：仅管理员可执行订阅测试", d)
 
             from datetime import datetime
@@ -251,15 +256,24 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
             if keyboard:
                 payload["keyboard"] = keyboard
 
+            # 群聊发到群，私聊发到当前用户
+            if group_openid:
+                endpoint = f"/v2/groups/{group_openid}/messages"
+            else:
+                user_openid = d.get("author", {}).get("union_openid")
+                if not user_openid:
+                    return await post_floodgate_message("无法获取用户身份，测试消息发送失败", d)
+                endpoint = f"/v2/users/{user_openid}/messages"
+
             try:
-                result = await call_open_api("POST", f"/v2/groups/{group_openid}/messages", payload, sleepy=False)
+                result = await call_open_api("POST", endpoint, payload, sleepy=False)
                 if isinstance(result, dict) and result.get("send_failed"):
                     err_msg = result.get("message", "未知错误")
                     return await post_floodgate_message(f"❌ 订阅内容测试发送失败: {err_msg}", d)
                 return await post_floodgate_message("✅ 订阅内容测试发送成功！", d)
             except Exception as e:
                 return await post_floodgate_message(f"❌ 订阅内容测试发送异常: {e}", d)
-        elif parts[1].strip() == "status":
+        elif sub_cmd == "status":
             # ~subscribe status - 查看状态
             subscribed = await is_subscribed(group_openid)
             if subscribed:
@@ -275,7 +289,7 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
             else:
                 msg = "📋 订阅状态：未订阅 ❌\n使用 ~subscribe 进行订阅"
         else:
-            msg = "未知子命令。用法：\n~subscribe - 订阅\n~subscribe status - 查看状态\n~subscribe test - 管理员测试发送订阅内容"
+            msg = "未知子命令。用法：\n~subscribe - 订阅\n~subscribe status - 查看状态\n~subscribe test - 管理员测试发送订阅内容（群聊/私聊均可）"
         return await post_floodgate_message(msg, d)
     elif cmd.startswith("unsubscribe"):
         # 取消订阅命令：仅群主可执行
@@ -294,3 +308,16 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
     
         success, msg = await unsubscribe_group(group_openid, group_digit_id)
         return await post_floodgate_message(msg, d)
+    elif cmd.startswith("mute"):
+        # 静默命令：仅群聊可用且仅管理员可执行，重复执行可解除静默
+        group_openid = d.get("group_openid") or d.get("channel_id")
+        if not group_openid:
+            return await post_floodgate_message("此命令仅在群聊中可用", d)
+        if not await is_user_admin(d):
+            return await post_floodgate_message("权限不足：只有管理员才能控制机器人静默状态", d)
+        if await is_group_muted(group_openid):
+            await set_group_muted(group_openid, False)
+            return await post_floodgate_message("已解除静默，机器人恢复在本群发送消息", d)
+        # 先回复提示再进入静默状态，避免本条提示被静默丢弃
+        await post_floodgate_message("已开启静默，机器人在本群的消息将被静默丢弃，再次使用 ~mute 可解除", d)
+        await set_group_muted(group_openid, True)

@@ -21,6 +21,25 @@ cache_lock = asyncio.Lock()
 
 SEND_FAILED_DICT = {"success":0, "failed":0}
 
+# 机器人静默（禁言）状态：处于静默状态的群 OpenID 集合，由 ~mute 命令管理，重启后失效
+MUTED_GROUP_OPENIDS: set[str] = set()
+
+
+async def is_group_muted(group_openid) -> bool:
+    """检查群聊是否处于静默状态"""
+    return group_openid is not None and str(group_openid) in MUTED_GROUP_OPENIDS
+
+
+async def set_group_muted(group_openid, muted: bool) -> None:
+    """设置群聊的静默状态"""
+    openid = str(group_openid)
+    if muted:
+        MUTED_GROUP_OPENIDS.add(openid)
+        log.warning(f"群 {openid} 已进入静默状态，所有出站消息将被静默丢弃")
+    else:
+        MUTED_GROUP_OPENIDS.discard(openid)
+        log.success(f"群 {openid} 已解除静默状态")
+
 # 全局 aiohttp ClientSession，避免重复创建连接
 _http_session: aiohttp.ClientSession | None = None
 _session_lock = asyncio.Lock()
@@ -481,6 +500,9 @@ async def post_upload_file(data):
 async def post_floodgate_message(msg, d, suppress_add_return=False):
     user_openid = d.get("author", {}).get("union_openid")
     group_openid = d.get("group_openid",d.get("channel_id"))
+    if group_openid and await is_group_muted(group_openid):
+        log.info(f"群 {group_openid} 处于静默状态，消息已静默丢弃")
+        return {"id": None, "muted": True}
     if group_openid:
         union_id = group_openid
         if str(group_openid).isdigit():
@@ -498,6 +520,9 @@ async def post_floodgate_message(msg, d, suppress_add_return=False):
 async def post_floodgate_rich_message(msg, image, d, suppress_add_return=False):
     user_openid = d.get("author", {}).get("union_openid")
     group_openid = d.get("group_openid",d.get("channel_id"))
+    if group_openid and await is_group_muted(group_openid):
+        log.info(f"群 {group_openid} 处于静默状态，消息已静默丢弃")
+        return {"id": None, "muted": True}
     if group_openid:
         union_id = group_openid
         if str(group_openid).isdigit():
@@ -520,6 +545,9 @@ async def post_floodgate_rich_message(msg, image, d, suppress_add_return=False):
 async def post_floodgate_markdown_message(markdown_content, d):
     user_openid = d.get("author", {}).get("union_openid")
     group_openid = d.get("group_openid", d.get("channel_id"))
+    if group_openid and await is_group_muted(group_openid):
+        log.info(f"群 {group_openid} 处于静默状态，消息已静默丢弃")
+        return {"id": None, "muted": True}
     if group_openid:
         union_id = group_openid
         if str(group_openid).isdigit():
@@ -540,13 +568,17 @@ async def post_floodgate_markdown_message(markdown_content, d):
     return await call_open_api("POST", f"{endpoint}/{union_id}/messages", payload, False)
 
 async def post_im_message(user_id, group_id, message, suppress_add_return=False):
-    msg_id = await message_id_to_open_id(user_id, group_id)
-    msg_seq = await get_next_msg_seq(msg_id)
     endpoint = "/v2/groups" if group_id else "/v2/users"
     id = group_id if group_id else user_id
     union_id = id if TRANSPARENT_OPENID else await get_union_id_by_digit_id(id)
     if str(union_id).isdigit():
         endpoint = "/channels"
+    # 群聊静默状态下直接丢弃消息，但向 OneBot 端返回发送成功
+    if group_id and await is_group_muted(union_id):
+        log.info(f"群 {group_id} 处于静默状态，OneBot 消息已静默丢弃")
+        return {"id": None, "muted": True}
+    msg_id = await message_id_to_open_id(user_id, group_id)
+    msg_seq = await get_next_msg_seq(msg_id)
     await increment_usage(user_id)
     if message.get("type") == "text":
         payload = {"msg_type": 0, "msg_id": msg_id, "msg_seq": msg_seq}
@@ -682,18 +714,21 @@ async def post_im_message(user_id, group_id, message, suppress_add_return=False)
         return await call_open_api("POST", f"{endpoint}/{union_id}/messages",{"content": "暂不支持该消息类型", "msg_type": 0, "msg_id": msg_id,"msg_seq": msg_seq},False)
 
 
-async def send_active_group_message(group_openid: str, message: dict) -> dict:
+async def _send_active_message(scope: str, openid: str, message: dict) -> dict:
     """
-    向指定群发送主动消息（不需要 msg_id/msg_seq），用于 /send_active_message 接口。
+    主动消息发送的通用实现（群聊/单聊共用，不需要 msg_id/msg_seq）。
 
     Args:
-        group_openid: 群的 OpenID
+        scope: "groups"（群聊）或 "users"（单聊）
+        openid: 群 OpenID 或用户 OpenID
         message: convert_cq_to_openapi_message 处理后的消息字典
 
     Returns:
         OpenAPI 响应字典
     """
-    endpoint = f"/v2/groups/{group_openid}/messages"
+    base = f"/v2/{scope}/{openid}"
+    endpoint = f"{base}/messages"
+    file_endpoint = f"{base}/files"
     if message.get("type") == "text":
         payload = {"content": message["text"], "msg_type": 0}
         return await call_open_api("POST", endpoint, payload, sleepy=False)
@@ -707,12 +742,12 @@ async def send_active_group_message(group_openid: str, message: dict) -> dict:
             elif segment["type"] == "image":
                 url = segment["url"]
                 if url.startswith("base64://"):
-                    ret = await call_open_api("POST", f"/v2/groups/{group_openid}/files", {"file_type": 1, "file_data": url[9:]}, sleepy=False)
+                    ret = await call_open_api("POST", file_endpoint, {"file_type": 1, "file_data": url[9:]}, sleepy=False)
                     if isinstance(ret, dict) and ret.get("send_failed"):
                         return ret
                     image_info_list.append(ret["file_info"])
                 elif url.startswith("http://") or url.startswith("https://"):
-                    ret = await call_open_api("POST", f"/v2/groups/{group_openid}/files", {"file_type": 1, "url": url}, sleepy=False)
+                    ret = await call_open_api("POST", file_endpoint, {"file_type": 1, "url": url}, sleepy=False)
                     if isinstance(ret, dict) and ret.get("send_failed"):
                         return ret
                     image_info_list.append(ret["file_info"])
@@ -721,7 +756,7 @@ async def send_active_group_message(group_openid: str, message: dict) -> dict:
                     import base64 as _b64
                     with open(file_path, "rb") as image_file:
                         encoded_str = _b64.b64encode(image_file.read()).decode("utf-8")
-                    ret = await call_open_api("POST", f"/v2/groups/{group_openid}/files", {"file_type": 1, "file_data": encoded_str}, sleepy=False)
+                    ret = await call_open_api("POST", file_endpoint, {"file_type": 1, "file_data": encoded_str}, sleepy=False)
                     if isinstance(ret, dict) and ret.get("send_failed"):
                         return ret
                     image_info_list.append(ret["file_info"])
@@ -766,15 +801,15 @@ async def send_active_group_message(group_openid: str, message: dict) -> dict:
         file_type = message.get("file_type", 1)
         data = message.get("data", "")
         if data.startswith("base64://"):
-            ret = await call_open_api("POST", f"/v2/groups/{group_openid}/files", {"file_type": file_type, "file_data": data[9:]}, sleepy=False)
+            ret = await call_open_api("POST", file_endpoint, {"file_type": file_type, "file_data": data[9:]}, sleepy=False)
         elif data.startswith("http://") or data.startswith("https://"):
-            ret = await call_open_api("POST", f"/v2/groups/{group_openid}/files", {"file_type": file_type, "url": data}, sleepy=False)
+            ret = await call_open_api("POST", file_endpoint, {"file_type": file_type, "url": data}, sleepy=False)
         elif data.startswith("file:///"):
             file_path = data.removeprefix("file:///")
             import base64 as _b64
             with open(file_path, "rb") as f:
                 encoded_str = _b64.b64encode(f.read()).decode("utf-8")
-            ret = await call_open_api("POST", f"/v2/groups/{group_openid}/files", {"file_type": file_type, "file_data": encoded_str}, sleepy=False)
+            ret = await call_open_api("POST", file_endpoint, {"file_type": file_type, "file_data": encoded_str}, sleepy=False)
         else:
             return await call_open_api("POST", endpoint, {"content": "传入的文件参数不是正确的格式", "msg_type": 0}, sleepy=False)
         if isinstance(ret, dict) and ret.get("send_failed"):
@@ -783,6 +818,39 @@ async def send_active_group_message(group_openid: str, message: dict) -> dict:
         return await call_open_api("POST", endpoint, payload, sleepy=False)
     else:
         return await call_open_api("POST", endpoint, {"content": "暂不支持该消息类型", "msg_type": 0}, sleepy=False)
+
+
+async def send_active_group_message(group_openid: str, message: dict) -> dict:
+    """
+    向指定群发送主动消息（不需要 msg_id/msg_seq），用于 /send_active_message 接口。
+
+    Args:
+        group_openid: 群的 OpenID
+        message: convert_cq_to_openapi_message 处理后的消息字典
+
+    Returns:
+        OpenAPI 响应字典
+    """
+    if await is_group_muted(group_openid):
+        log.info(f"群 {group_openid} 处于静默状态，主动消息已静默丢弃")
+        return {"id": None, "muted": True}
+    return await _send_active_message("groups", group_openid, message)
+
+
+async def send_active_user_message(user_openid: str, message: dict) -> dict:
+    """
+    向指定用户发送主动单聊消息（不需要 msg_id/msg_seq），用于 /send_active_message 接口。
+
+    对应开放平台接口: POST /v2/users/{user_openid}/messages
+
+    Args:
+        user_openid: 用户的 OpenID
+        message: convert_cq_to_openapi_message 处理后的消息字典
+
+    Returns:
+        OpenAPI 响应字典
+    """
+    return await _send_active_message("users", user_openid, message)
 
 
 async def delete_im_message(user_id, group_id, message_id):
