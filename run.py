@@ -1118,32 +1118,41 @@ async def send_active_message(
 
 # OAuth 内容拉取接口
 @app.get(f"{WEBHOOK_ENDPOINT}/oauth_content")
-async def oauth_content(message_id: str, authorization: str | None = Header(None)):
+async def oauth_content(message_id: str, authorization: str | None = Header(None), x_bot_shared_secret: str | None = Header(None, alias="X-Bot-Shared-Secret")):
     """使用JWT认证，根据 message_id 拉取完整 OneBot 事件内容
 
     - 实现端到端语义：SSE 只传 message_id，真正内容通过该接口单独拉取
     - 成功返回后会删除缓存中的这条 message_id 记录
+    - 也支持 X-Bot-Shared-Secret（匹配 DEV_TOKEN）管理员特权模式，与 oauth_stream 一致
     """
-    # 验证 JWT
-    if not authorization or not authorization.startswith("Bearer "):
-        log.warning(f"[OAuth Content] 认证失败: 缺少或无效的 Authorization header")
-        return {"status": "error", "code": "UNAUTHORIZED", "message": "Missing or invalid Authorization header"}
-
-    jwt_token = authorization[7:]
-    log.debug(f"[OAuth Content] JWT Token: {jwt_token[:20]}...")
-
-    union_openid = oauth_manager.verify_jwt(jwt_token)
-    if not union_openid:
-        log.warning(f"[OAuth Content] JWT 验证失败")
-        return {"status": "error", "code": "INVALID_TOKEN", "message": "Invalid or expired JWT token"}
-
-    # 获取数字 user_id（与 oauth_command / oauth_stream 保持一致）
-    if TRANSPARENT_OPENID:
-        user_id = union_openid
+    # 管理员特权模式：X-Bot-Shared-Secret 匹配 DEV_TOKEN 时，以 ADMIN_LIST[0] 的身份读取
+    if DEV_TOKEN and x_bot_shared_secret == DEV_TOKEN:
+        if not ADMIN_LIST:
+            log.warning(f"[OAuth Content] DEV_TOKEN 验证通过但 ADMIN_LIST 为空，无法读取")
+            return {"status": "error", "code": "UNAUTHORIZED", "message": "ADMIN_LIST is empty"}
+        user_id = ADMIN_LIST[0]
+        log.info(f"[OAuth Content] DEV_TOKEN 验证通过，以管理员身份读取，user_id={user_id}")
     else:
-        user_id = await get_or_create_digit_id(union_openid)
+        # 验证 JWT
+        if not authorization or not authorization.startswith("Bearer "):
+            log.warning(f"[OAuth Content] 认证失败: 缺少或无效的 Authorization header")
+            return {"status": "error", "code": "UNAUTHORIZED", "message": "Missing or invalid Authorization header"}
 
-    log.info(f"[OAuth Content] JWT 验证成功，union_openid={union_openid}, user_id={user_id}")
+        jwt_token = authorization[7:]
+        log.debug(f"[OAuth Content] JWT Token: {jwt_token[:20]}...")
+
+        union_openid = oauth_manager.verify_jwt(jwt_token)
+        if not union_openid:
+            log.warning(f"[OAuth Content] JWT 验证失败")
+            return {"status": "error", "code": "INVALID_TOKEN", "message": "Invalid or expired JWT token"}
+
+        # 获取数字 user_id（与 oauth_command / oauth_stream 保持一致）
+        if TRANSPARENT_OPENID:
+            user_id = union_openid
+        else:
+            user_id = await get_or_create_digit_id(union_openid)
+
+        log.info(f"[OAuth Content] JWT 验证成功，union_openid={union_openid}, user_id={user_id}")
 
     # 从缓存中读取并删除 message
     data = oauth_message_cache.pop(message_id, None)
@@ -1167,33 +1176,45 @@ async def oauth_content(message_id: str, authorization: str | None = Header(None
 
 # OAuth SSE 响应流接口
 @app.get(f"{WEBHOOK_ENDPOINT}/oauth_stream")
-async def oauth_stream(authorization: str | None = Header(None), request: Request = None):
-    """使用JWT认证，建立SSE连接接收该用户的所有响应消息"""
+async def oauth_stream(authorization: str | None = Header(None), x_bot_shared_secret: str | None = Header(None, alias="X-Bot-Shared-Secret"), request: Request = None):
+    """使用JWT认证，建立SSE连接接收该用户的所有响应消息
+
+    也支持 X-Bot-Shared-Secret（匹配 DEV_TOKEN）管理员特权模式，此时以 ADMIN_LIST[0] 的身份订阅，
+    与 oauth_command 的共享密钥模式身份一致，便于服务端在不持有任何用户 JWT 的情况下收发命令。
+    """
     # 打印请求信息
     client_ip = request.client.host if request and request.client else "unknown"
     log.info(f"[OAuth SSE] 收到连接请求，客户端IP: {client_ip}")
     log.debug(f"[OAuth SSE] 请求头: {dict(request.headers) if request else {}}")
     
-    # 验证JWT
-    if not authorization or not authorization.startswith("Bearer "):
-        log.warning(f"[OAuth SSE] 认证失败: 缺少或无效的 Authorization header")
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-    
-    jwt_token = authorization[7:]  # 移除 "Bearer " 前缀
-    log.debug(f"[OAuth SSE] JWT Token: {jwt_token[:20]}...")
-    
-    union_openid = oauth_manager.verify_jwt(jwt_token)
-    if not union_openid:
-        log.warning(f"[OAuth SSE] JWT 验证失败")
-        raise HTTPException(status_code=401, detail="Invalid or expired JWT token")
-    
-    log.info(f"[OAuth SSE] JWT 验证成功，union_openid={union_openid}")
-    
-    # 获取用户的数字ID
-    if TRANSPARENT_OPENID:
-        user_id = union_openid
+    # 管理员特权模式：X-Bot-Shared-Secret 匹配 DEV_TOKEN 时，以 ADMIN_LIST[0] 的身份订阅
+    if DEV_TOKEN and x_bot_shared_secret == DEV_TOKEN:
+        if not ADMIN_LIST:
+            log.warning(f"[OAuth SSE] DEV_TOKEN 验证通过但 ADMIN_LIST 为空，无法订阅")
+            raise HTTPException(status_code=401, detail="Shared secret accepted but ADMIN_LIST is empty")
+        user_id = ADMIN_LIST[0]
+        log.info(f"[OAuth SSE] DEV_TOKEN 验证通过，以管理员身份订阅，user_id={user_id}")
     else:
-        user_id = await get_or_create_digit_id(union_openid)
+        # 验证JWT
+        if not authorization or not authorization.startswith("Bearer "):
+            log.warning(f"[OAuth SSE] 认证失败: 缺少或无效的 Authorization header")
+            raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+        jwt_token = authorization[7:]  # 移除 "Bearer " 前缀
+        log.debug(f"[OAuth SSE] JWT Token: {jwt_token[:20]}...")
+
+        union_openid = oauth_manager.verify_jwt(jwt_token)
+        if not union_openid:
+            log.warning(f"[OAuth SSE] JWT 验证失败")
+            raise HTTPException(status_code=401, detail="Invalid or expired JWT token")
+
+        log.info(f"[OAuth SSE] JWT 验证成功，union_openid={union_openid}")
+
+        # 获取用户的数字ID
+        if TRANSPARENT_OPENID:
+            user_id = union_openid
+        else:
+            user_id = await get_or_create_digit_id(union_openid)
     
     log.info(f"[OAuth SSE] 用户ID映射完成，user_id={user_id}")
     
