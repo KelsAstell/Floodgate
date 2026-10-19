@@ -139,7 +139,7 @@ async def parse_floodgate_cmd(start_time,connected_clients,payload,headers): #�
         if not user_openid:
             return await post_floodgate_message("无法获取用户身份，请稍后重试", d)
         token = oauth_manager.generate_login_token(user_openid)
-        markdown_content = {"content": f"Oauth登录令牌：<qqbot-cmd-input text=\"{token}\" show=\"点击后，在底部输入框内显示\"/>\n有效期{OAUTH_LOGIN_TOKEN_TTL}秒，谨防泄露。"}
+        markdown_content = {"content": f"Oauth登录令牌：<qqbot-cmd-input text=\"{token}\" show=\"点击后，在底部输入框内显示\"/>\n有效期{OAUTH_LOGIN_TOKEN_TTL}秒，谨防泄露。**登陆令牌是用在网页端的，请不要发送给当前聊天窗口**"}
         return await post_floodgate_markdown_message(markdown_content, d)
     elif cmd.startswith("openid"):
         # 同时显示用户与当前群聊的 OpenID/数字ID（仅群聊可用）
